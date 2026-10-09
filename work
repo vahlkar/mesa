@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # work — manage disposable Podman work environments
-#   work build [name]   build/pull the image
-#   work new  [name]    start a fresh environment (creates if absent)
-#   work shell [name]   attach to the running environment
-#   work rm   [name]    destroy the container (keeps workspace data)
-#   work purge [name]   destroy container AND wipe workspace data
-#   work logs [name]    show container logs
-#   work ls             list environments
+#   work build  [name]   build the image (after Containerfile changes)
+#   work new    [name]   start a fresh environment (GUI-capable)
+#   work shell  [name]   attach to the running environment
+#   work gui    [name] <cmd...>   launch a graphical app inside it
+#   work rm     [name]   destroy the container (keeps workspace data)
+#   work purge  [name]   destroy container AND wipe workspace data
+#   work logs   [name]   show container logs
+#   work ls              list environments
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,20 +30,26 @@ case "$cmd" in
       --userns=keep-id \
       --cap-add=NET_RAW --cap-add=NET_ADMIN \
       --network=host \
+      -e XDG_RUNTIME_DIR=/run/user/$(id -u) \
+      -e WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+      -e DISPLAY="${DISPLAY:-}" \
+      -v "${XDG_RUNTIME_DIR:?}:/run/user/$(id -u)" \
+      -v /tmp/.X11-unix:/tmp/.X11-unix:Z \
+      -v /dev/dri:/dev/dri \
       -v "${ws}:/workspace:Z" \
       "$IMAGE"
     echo "Environment '${name}' started. Attach with: work shell ${name}" ;;
   shell)
     running || { echo "Not running. Try: work new ${name}"; exit 1; }
-    podman exec -it "$ctn" fish -l ;;
+    podman exec -it "$ctn" bash -l ;;
   gui)
-    exists || { echo "Run first: work new ${name}"; exit 1; }
-    # exec the app inside the already-running environment
+    # usage: work gui [name] <command...>  e.g. work gui default code --no-sandbox
+    running || { echo "Not running. Try: work new ${name}"; exit 1; }
     podman exec -it "$ctn" \
       env XDG_RUNTIME_DIR=/run/user/$(id -u) \
-          WAYLAND_DISPLAY="$WAYLAND_DISPLAY" \
-          DISPLAY="$DISPLAY" \
-      "${@:3}" ;;   # usage: work gui [name] burpsuite
+          WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+          DISPLAY="${DISPLAY:-}" \
+      "${@:3}" ;;
   rm)
     exists && podman rm -f "$ctn" || echo "(already gone)"
     echo "Container gone. Workspace data kept at ${ws}" ;;
@@ -51,5 +58,5 @@ case "$cmd" in
     rm -rf "${ws:?}"; echo "Container and workspace data for '${name}' purged." ;;
   logs) podman logs "$ctn" ;;
   ls)   podman ps -a --filter "name=swe-" --format '{{.Names}}\t{{.Status}}' ;;
-  *) echo "usage: work build|new|shell|rm|purge|logs|ls [name]"; exit 2 ;;
+  *) echo "usage: work build|new|shell|gui|rm|purge|logs|ls [name] [cmd...]"; exit 2 ;;
 esac
