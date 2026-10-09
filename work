@@ -41,7 +41,7 @@ case "$cmd" in
     echo "Environment '${name}' started. Attach with: work shell ${name}" ;;
   shell)
     running || { echo "Not running. Try: work new ${name}"; exit 1; }
-    podman exec -it "$ctn" bash -l ;;
+    podman exec -it "$ctn" fish -l ;;
   gui)
     # usage: work gui [name] <command...>  e.g. work gui default code --no-sandbox
     running || { echo "Not running. Try: work new ${name}"; exit 1; }
