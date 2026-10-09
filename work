@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# work — manage disposable Podman work environments
+#   work build [name]   build/pull the image
+#   work new  [name]    start a fresh environment (creates if absent)
+#   work shell [name]   attach to the running environment
+#   work rm   [name]    destroy the container (keeps workspace data)
+#   work purge [name]   destroy container AND wipe workspace data
+#   work logs [name]    show container logs
+#   work ls             list environments
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IMAGE="localhost/secure-workenv:latest"
+HOST_UID="$(id -u)"
+
+cmd="${1:-shell}"; name="${2:-default}"
+ctn="swe-${name}"
+ws="${ROOT}/workspaces/${name}"
+
+build()  { podman build -t "$IMAGE" --build-arg HOST_UID="$HOST_UID" "$ROOT"; }
+exists() { podman ps -a --format '{{.Names}}' | grep -qx "$ctn"; }
+running(){ podman ps     --format '{{.Names}}' | grep -qx "$ctn"; }
+
+case "$cmd" in
+  build) build ;;
+  new)
+    mkdir -p "$ws"
+    podman run -d --name "$ctn" --replace \
+      --userns=keep-id \
+      --cap-add=NET_RAW --cap-add=NET_ADMIN \
+      --network=host \
+      -v "${ws}:/workspace:Z" \
+      "$IMAGE"
+    echo "Environment '${name}' started. Attach with: work shell ${name}" ;;
+  shell)
+    running || { echo "Not running. Try: work new ${name}"; exit 1; }
+    podman exec -it "$ctn" fish -l ;;
+  gui)
+    exists || { echo "Run first: work new ${name}"; exit 1; }
+    # exec the app inside the already-running environment
+    podman exec -it "$ctn" \
+      env XDG_RUNTIME_DIR=/run/user/$(id -u) \
+          WAYLAND_DISPLAY="$WAYLAND_DISPLAY" \
+          DISPLAY="$DISPLAY" \
+      "${@:3}" ;;   # usage: work gui [name] burpsuite
+  rm)
+    exists && podman rm -f "$ctn" || echo "(already gone)"
+    echo "Container gone. Workspace data kept at ${ws}" ;;
+  purge)
+    exists && podman rm -f "$ctn" || true
+    rm -rf "${ws:?}"; echo "Container and workspace data for '${name}' purged." ;;
+  logs) podman logs "$ctn" ;;
+  ls)   podman ps -a --filter "name=swe-" --format '{{.Names}}\t{{.Status}}' ;;
+  *) echo "usage: work build|new|shell|rm|purge|logs|ls [name]"; exit 2 ;;
+esac
