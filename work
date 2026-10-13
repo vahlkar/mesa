@@ -16,7 +16,8 @@ HOST_UID="$(id -u)"
 
 cmd="${1:-shell}"; name="${2:-default}"
 ctn="swe-${name}"
-ws="${ROOT}/workspaces/${name}"
+ws="${ROOT}/workspaces/${name}/workspace"
+ws_home="${ROOT}/workspaces/${name}/home"
 
 build()  { podman build -t "$IMAGE" --build-arg HOST_UID="$HOST_UID" "$ROOT"; }
 exists() { podman ps -a --format '{{.Names}}' | grep -qx "$ctn"; }
@@ -26,6 +27,7 @@ case "$cmd" in
   build) build ;;
   new)
     mkdir -p "$ws"
+    mkdir -p "$ws_home"
     podman run -d --name "$ctn" --replace \
       --userns=keep-id \
       --cap-add=NET_RAW --cap-add=NET_ADMIN \
@@ -37,6 +39,7 @@ case "$cmd" in
       -v /tmp/.X11-unix:/tmp/.X11-unix:Z \
       -v /dev/dri:/dev/dri \
       -v "${ws}:/workspace:Z" \
+      -v "${ws_home}:/home/researcher:Z" \
       "$IMAGE"
     echo "Environment '${name}' started. Attach with: work shell ${name}" ;;
   shell)
