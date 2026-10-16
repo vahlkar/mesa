@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""work — manage disposable Podman work environments.
+"""mesa — manage disposable Podman work environments.
 
 Commands:
   build [name]              Build the image (required once, and after Dockerfile changes)
@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-IMAGE = "localhost/secure-workenv:latest"
+IMAGE = "localhost/mesa:latest"
 HOST_UID = os.getuid()
 
 
@@ -32,13 +32,13 @@ def _xdg(env_var, default_rel):
     return Path.home() / default_rel
 
 
-CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config") / "work"
+CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config") / "mesa"
 CONFIG_FILE = CONFIG_DIR / "config"
-DATA_DIR = _xdg("XDG_DATA_HOME", ".local/share") / "work"
+DATA_DIR = _xdg("XDG_DATA_HOME", ".local/share") / "mesa"
 
-USAGE = f"""work — manage disposable Podman work environments
+USAGE = f"""mesa — manage disposable Podman work environments
 
-Usage: work <command> [name] [args...]
+Usage: mesa <command> [name] [args...]
 
 Commands:
   build [name]              Build the image (required once, and after Dockerfile changes)
@@ -51,8 +51,8 @@ Commands:
   ls                        List all environments
   config [key] [value]      Show settings, or set one (key: default)
 
-'name' defaults to the configured default name ('work config default <name>'),
-or "default" if unset. Running 'work' with no arguments shows this help.
+'name' defaults to the configured default name ('mesa config default <name>'),
+or "default" if unset. Running 'mesa' with no arguments shows this help.
 """
 
 
@@ -93,7 +93,7 @@ def podman_exec(*args):
 
 
 def container(name):
-    return f"swe-{name}"
+    return f"mesa-{name}"
 
 
 def exists(name):
@@ -113,7 +113,7 @@ def resolve_name(args):
 
 
 def die_not_running(name):
-    print(f"Not running. Try: work new {name}", file=sys.stderr)
+    print(f"Not running. Try: mesa new {name}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -154,7 +154,7 @@ def cmd_new(args):
         "-v", f"{ws_home}:/home/researcher:Z",
         IMAGE,
     )
-    print(f"Environment '{name}' started. Attach with: work shell {name}")
+    print(f"Environment '{name}' started. Attach with: mesa shell {name}")
 
 
 def cmd_shell(args):
@@ -196,9 +196,9 @@ def cmd_logs(args):
 
 
 def cmd_ls(args):
-    out = podman_output("ps", "-a", "--filter", "name=^swe-", "--format", "{{.Names}}\\t{{.Status}}")
+    out = podman_output("ps", "-a", "--filter", "name=^mesa-", "--format", "{{.Names}}\\t{{.Status}}")
     for line in out.splitlines():
-        print(re.sub(r"^swe-", "", line))
+        print(re.sub(r"^mesa-", "", line))
 
 
 def cmd_config(args):

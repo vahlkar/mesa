@@ -9,7 +9,7 @@ RUN printf 'Server = https://mirror.init7.net/archlinux/$repo/os/$arch\n' \
     echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && locale-gen && \
     echo 'LANG=en_US.UTF-8' > /etc/locale.conf
 
-# --- Toolset layer: edit here, then `work build` ---
+# --- Toolset layer: edit here, then `mesa build` ---
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
         base-devel git openssh curl wget nmap tcpdump wireshark-cli \
         metasploit sqlmap hydra john python python-pipx ripgrep fd tmux gdb \
