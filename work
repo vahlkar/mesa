@@ -16,6 +16,7 @@ IMAGE="localhost/secure-workenv:latest"
 HOST_UID="$(id -u)"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/work"
 CONFIG="$CONFIG_DIR/config"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/work"
 
 # Read a setting from the config file (empty if unset).
 cfg_get() {
@@ -26,8 +27,8 @@ cfg_get() {
 cmd="${1:-help}"
 name="${2:-$(cfg_get default)}"; name="${name:-default}"
 ctn="swe-${name}"
-ws="${ROOT}/workspaces/${name}/workspace"
-ws_home="${ROOT}/workspaces/${name}/home"
+ws="${DATA_DIR}/${name}/workspace"
+ws_home="${DATA_DIR}/${name}/home"
 
 build()  { podman build -t "$IMAGE" --build-arg HOST_UID="$HOST_UID" "$ROOT"; }
 exists() { podman ps -a --format '{{.Names}}' | grep -qx "$ctn"; }
@@ -58,6 +59,12 @@ EOF
 case "$cmd" in
   build) build ;;
   new)
+    legacy="${ROOT}/workspaces/${name}"
+    if [ -d "$legacy" ] && [ ! -e "$ws" ]; then
+      mkdir -p "$DATA_DIR"
+      mv "$legacy" "$DATA_DIR/${name}"
+      echo "Migrated '${name}' from ${ROOT}/workspaces to ${DATA_DIR}"
+    fi
     mkdir -p "$ws"
     mkdir -p "$ws_home"
     podman run -d --name "$ctn" --replace \

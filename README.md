@@ -75,12 +75,17 @@ and runtime directory forwarded, so the app appears on your desktop.
 
 ## Data layout
 
-Environment data lives under `workspaces/` next to the script (git-ignored):
+Environment data lives under `~/.local/share/work/` (respects `XDG_DATA_HOME`):
 
 ```
-workspaces/<name>/workspace   # mounted at /workspace in the container
-workspaces/<name>/home        # mounted at /home/researcher
+~/.local/share/work/<name>/workspace   # mounted at /workspace in the container
+~/.local/share/work/<name>/home        # mounted at /home/researcher
 ```
+
+Settings live in `~/.config/work/config` (respects `XDG_CONFIG_HOME`).
+
+If you used an older version of this script, `work new <name>` migrates
+existing data from `workspaces/<name>/` next to the script to the new location.
 
 - `rm` keeps this data, so `work new <name>` picks up where you left off.
 - `purge` deletes it permanently.
