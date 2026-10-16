@@ -117,6 +117,14 @@ def die_not_running(name):
     sys.exit(1)
 
 
+def confirm(question):
+    try:
+        answer = input(f"{question} [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
 def gui_env_args():
     return [
         "env",
@@ -159,8 +167,13 @@ def cmd_new(args):
 
 def cmd_shell(args):
     name = resolve_name(args)
-    if not running(name):
-        die_not_running(name)
+    if not exists(name):
+        if confirm(f"Environment '{name}' does not exist. Create it?"):
+            cmd_new([name])
+        else:
+            die_not_running(name)
+    elif not running(name):
+        podman("start", container(name))
     podman_exec("exec", "-it", container(name), "fish", "-l")
 
 
