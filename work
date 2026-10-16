@@ -80,7 +80,7 @@ case "$cmd" in
     exists && podman rm -f "$ctn" || true
     rm -rf "${ws:?}"; echo "Container and workspace data for '${name}' purged." ;;
   logs) podman logs "$ctn" ;;
-  ls)   podman ps -a --filter "name=swe-" --format '{{.Names}}\t{{.Status}}' ;;
+  ls)   podman ps -a --filter "name=swe-" --format '{{.Names}}\t{{.Status}}' | sed 's/^swe-//';;
   help|-h|--help) usage ;;
   *) usage >&2; exit 2 ;;
 esac
