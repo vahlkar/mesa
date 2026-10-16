@@ -8,13 +8,23 @@
 #   work purge  [name]   destroy container AND wipe workspace data
 #   work logs   [name]   show container logs
 #   work ls              list environments
+#   work config [key] [value]  show or set settings (key: default)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE="localhost/secure-workenv:latest"
 HOST_UID="$(id -u)"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/work"
+CONFIG="$CONFIG_DIR/config"
 
-cmd="${1:-shell}"; name="${2:-default}"
+# Read a setting from the config file (empty if unset).
+cfg_get() {
+  [ -r "$CONFIG" ] || return 0
+  sed -n "s/^$1=//p" "$CONFIG" | tail -n1
+}
+
+cmd="${1:-help}"
+name="${2:-$(cfg_get default)}"; name="${name:-default}"
 ctn="swe-${name}"
 ws="${ROOT}/workspaces/${name}/workspace"
 ws_home="${ROOT}/workspaces/${name}/home"
@@ -38,8 +48,10 @@ Commands:
   purge [name]              Destroy the container AND wipe workspace data
   logs  [name]              Show the container logs
   ls                        List all environments
+  config [key] [value]      Show settings, or set one (key: default)
 
-'name' defaults to "default".
+'name' defaults to the configured default name ('work config default <name>'),
+or "default" if unset. Running 'work' with no arguments shows this help.
 EOF
 }
 
@@ -81,6 +93,29 @@ case "$cmd" in
     rm -rf "${ws:?}"; echo "Container and workspace data for '${name}' purged." ;;
   logs) podman logs "$ctn" ;;
   ls)   podman ps -a --filter "name=^swe-" --format '{{.Names}}\t{{.Status}}' | sed 's/^swe-//';;
+  config)
+    key="${2:-}"; value="${3:-}"
+    case "$key" in
+      default)
+        if [ -n "$value" ]; then
+          case "$value" in
+            *[!A-Za-z0-9._-]*) echo "Invalid name: '$value'" >&2; exit 2 ;;
+          esac
+          mkdir -p "$CONFIG_DIR"; touch "$CONFIG"
+          if grep -q '^default=' "$CONFIG"; then
+            sed -i "s/^default=.*/default=$value/" "$CONFIG"
+          else
+            printf 'default=%s\n' "$value" >> "$CONFIG"
+          fi
+          echo "Default environment name set to '$value'."
+        else
+          cur="$(cfg_get default)"
+          echo "default = ${cur:-default}"
+        fi ;;
+      "")
+        if [ -r "$CONFIG" ]; then cat "$CONFIG"; else echo "No settings yet ($CONFIG)"; fi ;;
+      *) echo "Unknown setting: '$key'. Supported: default" >&2; exit 2 ;;
+    esac ;;
   help|-h|--help) usage ;;
   *) usage >&2; exit 2 ;;
 esac

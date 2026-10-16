@@ -57,8 +57,12 @@ Named environments are fully isolated from each other:
 | `purge` | `work purge [name]` | Destroy the container and wipe workspace data |
 | `logs` | `work logs [name]` | Show container logs |
 | `ls` | `work ls` | List environments |
+| `config` | `work config [key] [value]` | Show settings, or set one (key: `default`) |
 
-If no name is given, `default` is used.
+Running `work` with no arguments prints the help.
+
+If no name is given, the configured default is used (`work config default <name>`,
+stored under `~/.config/work/config`); it falls back to `default` when unset.
 
 ### Running GUI apps
 
