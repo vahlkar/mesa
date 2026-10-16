@@ -85,9 +85,6 @@ Environment data lives under `~/.local/share/work/` (respects `XDG_DATA_HOME`):
 
 Settings live in `~/.config/work/config` (respects `XDG_CONFIG_HOME`).
 
-If you used an older version of this script, `work new <name>` migrates
-existing data from `workspaces/<name>/` next to the script to the new location.
-
 - `rm` keeps this data, so `work new <name>` picks up where you left off.
 - `purge` deletes it permanently.
 

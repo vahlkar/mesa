@@ -133,11 +133,6 @@ def cmd_build(args):
 def cmd_new(args):
     name = resolve_name(args)
     ws, ws_home = env_dirs(name)
-    legacy = ROOT / "workspaces" / name
-    if legacy.is_dir() and not ws.exists():
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(legacy), str(DATA_DIR / name))
-        print(f"Migrated '{name}' from {legacy.parent} to {DATA_DIR}")
     ws.mkdir(parents=True, exist_ok=True)
     ws_home.mkdir(parents=True, exist_ok=True)
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
