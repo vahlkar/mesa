@@ -1,42 +1,42 @@
-#!/usr/bin/env bash
-# work — manage disposable Podman work environments
-#   work build  [name]   build the image (after Containerfile changes)
-#   work new    [name]   start a fresh environment (GUI-capable)
-#   work shell  [name]   attach to the running environment
-#   work gui    [name] <cmd...>   launch a graphical app inside it
-#   work rm     [name]   destroy the container (keeps workspace data)
-#   work purge  [name]   destroy container AND wipe workspace data
-#   work logs   [name]   show container logs
-#   work ls              list environments
-#   work config [key] [value]  show or set settings (key: default)
-set -euo pipefail
+#!/usr/bin/env python3
+"""work — manage disposable Podman work environments.
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE="localhost/secure-workenv:latest"
-HOST_UID="$(id -u)"
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/work"
-CONFIG="$CONFIG_DIR/config"
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/work"
+Commands:
+  build [name]              Build the image (required once, and after Dockerfile changes)
+  new   [name]              Start a fresh, GUI-capable environment
+  shell [name]              Attach to the running environment (fish login shell)
+  gui   [name] <cmd...>     Launch a graphical app inside the environment
+  rm    [name]              Destroy the container, keep workspace data
+  purge [name]              Destroy the container AND wipe workspace data
+  logs  [name]              Show the container logs
+  ls                        List all environments
+  config [key] [value]      Show settings, or set one (key: default)
+"""
 
-# Read a setting from the config file (empty if unset).
-cfg_get() {
-  [ -r "$CONFIG" ] || return 0
-  sed -n "s/^$1=//p" "$CONFIG" | tail -n1
-}
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
 
-cmd="${1:-help}"
-name="${2:-$(cfg_get default)}"; name="${name:-default}"
-ctn="swe-${name}"
-ws="${DATA_DIR}/${name}/workspace"
-ws_home="${DATA_DIR}/${name}/home"
+ROOT = Path(__file__).resolve().parent
+IMAGE = "localhost/secure-workenv:latest"
+HOST_UID = os.getuid()
 
-build()  { podman build -t "$IMAGE" --build-arg HOST_UID="$HOST_UID" "$ROOT"; }
-exists() { podman ps -a --format '{{.Names}}' | grep -qx "$ctn"; }
-running(){ podman ps     --format '{{.Names}}' | grep -qx "$ctn"; }
 
-usage() {
-  cat <<EOF
-work — manage disposable Podman work environments
+def _xdg(env_var, default_rel):
+    value = os.environ.get(env_var, "")
+    if value:
+        return Path(value).expanduser()
+    return Path.home() / default_rel
+
+
+CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config") / "work"
+CONFIG_FILE = CONFIG_DIR / "config"
+DATA_DIR = _xdg("XDG_DATA_HOME", ".local/share") / "work"
+
+USAGE = f"""work — manage disposable Podman work environments
 
 Usage: work <command> [name] [args...]
 
@@ -53,76 +53,218 @@ Commands:
 
 'name' defaults to the configured default name ('work config default <name>'),
 or "default" if unset. Running 'work' with no arguments shows this help.
-EOF
+"""
+
+
+def cfg_get(key):
+    try:
+        lines = CONFIG_FILE.read_text().splitlines()
+    except FileNotFoundError:
+        return ""
+    for line in reversed(lines):
+        if line.startswith(f"{key}="):
+            return line.split("=", 1)[1]
+    return ""
+
+
+def cfg_set(key, value):
+    lines = CONFIG_FILE.read_text().splitlines() if CONFIG_FILE.is_file() else []
+    updated = [f"{key}={value}" if line.startswith(f"{key}=") else line for line in lines]
+    if not any(line.startswith(f"{key}=") for line in updated):
+        updated.append(f"{key}={value}")
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text("\n".join(updated) + "\n")
+
+
+def podman(*args, check=True):
+    """Run podman, passing output through to the terminal."""
+    return subprocess.run(["podman", *args], check=check).returncode
+
+
+def podman_output(*args):
+    """Run podman and return its stdout."""
+    result = subprocess.run(["podman", *args], check=True, capture_output=True, text=True)
+    return result.stdout
+
+
+def podman_exec(*args):
+    """Replace this process with podman (interactive commands)."""
+    os.execvp("podman", ["podman", *args])
+
+
+def container(name):
+    return f"swe-{name}"
+
+
+def exists(name):
+    return container(name) in podman_output("ps", "-a", "--format", "{{.Names}}").splitlines()
+
+
+def running(name):
+    return container(name) in podman_output("ps", "--format", "{{.Names}}").splitlines()
+
+
+def env_dirs(name):
+    return DATA_DIR / name / "workspace", DATA_DIR / name / "home"
+
+
+def resolve_name(args):
+    return args[0] if args else (cfg_get("default") or "default")
+
+
+def die_not_running(name):
+    print(f"Not running. Try: work new {name}", file=sys.stderr)
+    sys.exit(1)
+
+
+def gui_env_args():
+    return [
+        "env",
+        f"XDG_RUNTIME_DIR=/run/user/{HOST_UID}",
+        f"WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '')}",
+        f"DISPLAY={os.environ.get('DISPLAY', '')}",
+    ]
+
+
+def cmd_build(args):
+    podman("build", "-t", IMAGE, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
+
+
+def cmd_new(args):
+    name = resolve_name(args)
+    ws, ws_home = env_dirs(name)
+    legacy = ROOT / "workspaces" / name
+    if legacy.is_dir() and not ws.exists():
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(legacy), str(DATA_DIR / name))
+        print(f"Migrated '{name}' from {legacy.parent} to {DATA_DIR}")
+    ws.mkdir(parents=True, exist_ok=True)
+    ws_home.mkdir(parents=True, exist_ok=True)
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
+    if not runtime_dir:
+        print("XDG_RUNTIME_DIR is not set.", file=sys.stderr)
+        sys.exit(1)
+    podman(
+        "run", "-d", "--name", container(name), "--replace",
+        "--userns=keep-id",
+        "--cap-add=NET_RAW", "--cap-add=NET_ADMIN",
+        "--network=host",
+        "-e", f"XDG_RUNTIME_DIR=/run/user/{HOST_UID}",
+        "-e", f"WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '')}",
+        "-e", f"DISPLAY={os.environ.get('DISPLAY', '')}",
+        "-v", f"{runtime_dir}:/run/user/{HOST_UID}",
+        "-v", "/tmp/.X11-unix:/tmp/.X11-unix:Z",
+        "-v", "/dev/dri:/dev/dri",
+        "-v", f"{ws}:/workspace:Z",
+        "-v", f"{ws_home}:/home/researcher:Z",
+        IMAGE,
+    )
+    print(f"Environment '{name}' started. Attach with: work shell {name}")
+
+
+def cmd_shell(args):
+    name = resolve_name(args)
+    if not running(name):
+        die_not_running(name)
+    podman_exec("exec", "-it", container(name), "fish", "-l")
+
+
+def cmd_gui(args):
+    name = resolve_name(args)
+    if not running(name):
+        die_not_running(name)
+    podman_exec("exec", "-it", container(name), *gui_env_args(), *args[1:])
+
+
+def cmd_rm(args):
+    name = resolve_name(args)
+    if exists(name):
+        podman("rm", "-f", container(name))
+    else:
+        print("(already gone)")
+    ws, _ = env_dirs(name)
+    print(f"Container gone. Workspace data kept at {ws}")
+
+
+def cmd_purge(args):
+    name = resolve_name(args)
+    if exists(name):
+        podman("rm", "-f", container(name), check=False)
+    ws, _ = env_dirs(name)
+    shutil.rmtree(ws)
+    print(f"Container and workspace data for '{name}' purged.")
+
+
+def cmd_logs(args):
+    name = resolve_name(args)
+    podman("logs", container(name))
+
+
+def cmd_ls(args):
+    out = podman_output("ps", "-a", "--filter", "name=^swe-", "--format", "{{.Names}}\\t{{.Status}}")
+    for line in out.splitlines():
+        print(re.sub(r"^swe-", "", line))
+
+
+def cmd_config(args):
+    key = args[0] if args else ""
+    value = args[1] if len(args) > 1 else ""
+    if key == "default":
+        if value:
+            if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
+                print(f"Invalid name: '{value}'", file=sys.stderr)
+                return 2
+            cfg_set("default", value)
+            print(f"Default environment name set to '{value}'.")
+        else:
+            print(f"default = {cfg_get('default') or 'default'}")
+    elif key == "":
+        if CONFIG_FILE.is_file():
+            sys.stdout.write(CONFIG_FILE.read_text())
+        else:
+            print(f"No settings yet ({CONFIG_FILE})")
+    else:
+        print(f"Unknown setting: '{key}'. Supported: default", file=sys.stderr)
+        return 2
+    return 0
+
+
+def cmd_help(args):
+    print(USAGE)
+
+
+COMMANDS = {
+    "build": cmd_build,
+    "new": cmd_new,
+    "shell": cmd_shell,
+    "gui": cmd_gui,
+    "rm": cmd_rm,
+    "purge": cmd_purge,
+    "logs": cmd_logs,
+    "ls": cmd_ls,
+    "config": cmd_config,
+    "help": cmd_help,
+    "-h": cmd_help,
+    "--help": cmd_help,
 }
 
-case "$cmd" in
-  build) build ;;
-  new)
-    legacy="${ROOT}/workspaces/${name}"
-    if [ -d "$legacy" ] && [ ! -e "$ws" ]; then
-      mkdir -p "$DATA_DIR"
-      mv "$legacy" "$DATA_DIR/${name}"
-      echo "Migrated '${name}' from ${ROOT}/workspaces to ${DATA_DIR}"
-    fi
-    mkdir -p "$ws"
-    mkdir -p "$ws_home"
-    podman run -d --name "$ctn" --replace \
-      --userns=keep-id \
-      --cap-add=NET_RAW --cap-add=NET_ADMIN \
-      --network=host \
-      -e XDG_RUNTIME_DIR=/run/user/$(id -u) \
-      -e WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
-      -e DISPLAY="${DISPLAY:-}" \
-      -v "${XDG_RUNTIME_DIR:?}:/run/user/$(id -u)" \
-      -v /tmp/.X11-unix:/tmp/.X11-unix:Z \
-      -v /dev/dri:/dev/dri \
-      -v "${ws}:/workspace:Z" \
-      -v "${ws_home}:/home/researcher:Z" \
-      "$IMAGE"
-    echo "Environment '${name}' started. Attach with: work shell ${name}" ;;
-  shell)
-    running || { echo "Not running. Try: work new ${name}"; exit 1; }
-    podman exec -it "$ctn" fish -l ;;
-  gui)
-    # usage: work gui [name] <command...>  e.g. work gui default code --no-sandbox
-    running || { echo "Not running. Try: work new ${name}"; exit 1; }
-    podman exec -it "$ctn" \
-      env XDG_RUNTIME_DIR=/run/user/$(id -u) \
-          WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
-          DISPLAY="${DISPLAY:-}" \
-      "${@:3}" ;;
-  rm)
-    exists && podman rm -f "$ctn" || echo "(already gone)"
-    echo "Container gone. Workspace data kept at ${ws}" ;;
-  purge)
-    exists && podman rm -f "$ctn" || true
-    rm -rf "${ws:?}"; echo "Container and workspace data for '${name}' purged." ;;
-  logs) podman logs "$ctn" ;;
-  ls)   podman ps -a --filter "name=^swe-" --format '{{.Names}}\t{{.Status}}' | sed 's/^swe-//';;
-  config)
-    key="${2:-}"; value="${3:-}"
-    case "$key" in
-      default)
-        if [ -n "$value" ]; then
-          case "$value" in
-            *[!A-Za-z0-9._-]*) echo "Invalid name: '$value'" >&2; exit 2 ;;
-          esac
-          mkdir -p "$CONFIG_DIR"; touch "$CONFIG"
-          if grep -q '^default=' "$CONFIG"; then
-            sed -i "s/^default=.*/default=$value/" "$CONFIG"
-          else
-            printf 'default=%s\n' "$value" >> "$CONFIG"
-          fi
-          echo "Default environment name set to '$value'."
-        else
-          cur="$(cfg_get default)"
-          echo "default = ${cur:-default}"
-        fi ;;
-      "")
-        if [ -r "$CONFIG" ]; then cat "$CONFIG"; else echo "No settings yet ($CONFIG)"; fi ;;
-      *) echo "Unknown setting: '$key'. Supported: default" >&2; exit 2 ;;
-    esac ;;
-  help|-h|--help) usage ;;
-  *) usage >&2; exit 2 ;;
-esac
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "help"
+    handler = COMMANDS.get(cmd)
+    if handler is None:
+        print(USAGE, file=sys.stderr)
+        return 2
+    return handler(argv[2:])
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv))
+    except subprocess.CalledProcessError as err:
+        sys.exit(err.returncode)
+    except FileNotFoundError:
+        print("podman: command not found", file=sys.stderr)
+        sys.exit(127)
+    except KeyboardInterrupt:
+        sys.exit(130)

@@ -21,6 +21,7 @@ the container away, and keep your files (or wipe everything with one command).
 
 ## Requirements
 
+- Python 3 (the `work` script)
 - Podman (rootless)
 - A Wayland or X11 session on the host (for GUI apps)
 
