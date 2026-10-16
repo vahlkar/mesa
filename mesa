@@ -4,7 +4,7 @@
 Commands:
   build [name]              Build the image (required once, and after Dockerfile changes)
   new   [name]              Start a fresh, GUI-capable environment
-  shell [name]              Attach to the running environment (fish login shell)
+  shell [name]              Attach to the environment (starts or creates it if needed)
   gui   [name] <cmd...>     Launch a graphical app inside the environment
   rm    [name]              Destroy the container, keep workspace data
   purge [name]              Destroy the container AND wipe workspace data
@@ -43,7 +43,7 @@ Usage: mesa <command> [name] [args...]
 Commands:
   build [name]              Build the image (required once, and after Dockerfile changes)
   new   [name]              Start a fresh, GUI-capable environment
-  shell [name]              Attach to the running environment (fish login shell)
+  shell [name]              Attach to the environment (starts or creates it if needed)
   gui   [name] <cmd...>     Launch a graphical app inside the environment
   rm    [name]              Destroy the container, keep workspace data
   purge [name]              Destroy the container AND wipe workspace data
