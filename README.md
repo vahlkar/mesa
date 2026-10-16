@@ -52,7 +52,7 @@ Named environments are fully isolated from each other:
 | --- | --- | --- |
 | `build` | `mesa build [name]` | Build the image (after Dockerfile changes) |
 | `new` | `mesa new [name]` | Start a fresh environment (GUI-capable) |
-| `shell` | `mesa shell [name]` | Attach to the running environment |
+| `shell` | `mesa shell [name]` | Attach to the environment (starts or creates it if needed) |
 | `gui` | `mesa gui [name] <cmd...>` | Launch a graphical app inside it |
 | `rm` | `mesa rm [name]` | Destroy the container (keeps workspace data) |
 | `purge` | `mesa purge [name]` | Destroy the container and wipe workspace data |
@@ -61,6 +61,11 @@ Named environments are fully isolated from each other:
 | `config` | `mesa config [key] [value]` | Show settings, or set one (key: `default`) |
 
 Running `mesa` with no arguments prints the help.
+
+`mesa shell` also copes with an environment that is not running: a stopped
+container is started automatically, and if the environment does not exist you
+are asked whether to create it (`y` runs the equivalent of `mesa new <name>`
+and then attaches).
 
 If no name is given, the configured default is used (`mesa config default <name>`,
 stored under `~/.config/mesa/config`); it falls back to `default` when unset.
