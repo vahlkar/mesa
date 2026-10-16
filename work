@@ -23,6 +23,26 @@ build()  { podman build -t "$IMAGE" --build-arg HOST_UID="$HOST_UID" "$ROOT"; }
 exists() { podman ps -a --format '{{.Names}}' | grep -qx "$ctn"; }
 running(){ podman ps     --format '{{.Names}}' | grep -qx "$ctn"; }
 
+usage() {
+  cat <<EOF
+work — manage disposable Podman work environments
+
+Usage: work <command> [name] [args...]
+
+Commands:
+  build [name]              Build the image (required once, and after Dockerfile changes)
+  new   [name]              Start a fresh, GUI-capable environment
+  shell [name]              Attach to the running environment (fish login shell)
+  gui   [name] <cmd...>     Launch a graphical app inside the environment
+  rm    [name]              Destroy the container, keep workspace data
+  purge [name]              Destroy the container AND wipe workspace data
+  logs  [name]              Show the container logs
+  ls                        List all environments
+
+'name' defaults to "default".
+EOF
+}
+
 case "$cmd" in
   build) build ;;
   new)
@@ -61,5 +81,6 @@ case "$cmd" in
     rm -rf "${ws:?}"; echo "Container and workspace data for '${name}' purged." ;;
   logs) podman logs "$ctn" ;;
   ls)   podman ps -a --filter "name=swe-" --format '{{.Names}}\t{{.Status}}' ;;
-  *) echo "usage: work build|new|shell|gui|rm|purge|logs|ls [name] [cmd...]"; exit 2 ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
 esac
