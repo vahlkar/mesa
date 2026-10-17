@@ -53,15 +53,15 @@ Named environments are fully isolated from each other:
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `build` | `mesa build [name]` | Build the image (after Dockerfile changes) |
-| `new` | `mesa new [name]` | Create a fresh environment (refuses if it already exists) |
-| `shell` | `mesa shell [name]` | Attach to the environment (starts or recreates the container if needed) |
+| `build` | `mesa build [name]` | Build an image: `images/<name>/Dockerfile`, or the base `Dockerfile` as `localhost/mesa:latest` |
+| `new` | `mesa new [name] [-i image]` | Create a fresh environment (refuses if it already exists) |
+| `shell` | `mesa shell [name] [-i image]` | Attach to the environment (starts or recreates the container if needed) |
 | `stop` | `mesa stop [name]` | Stop the environment's container (environment and data are kept) |
 | `gui` | `mesa gui [name] <cmd...>` | Launch a graphical app inside it |
 | `rm` | `mesa rm [name] [-a] [-f]` | Remove the container, keep data (`-a`/`--all`: also destroy all data; `-f`/`--force`: skip confirmation) |
 | `logs` | `mesa logs [name]` | Show container logs |
-| `ls` | `mesa ls` | List environments and their status |
-| `config` | `mesa config [key] [value]` | Show settings, or set one (key: `default`) |
+| `ls` | `mesa ls` | List environments, their status, and their image |
+| `config` | `mesa config [key] [value]` | Show settings, or set one (keys: `default`, `image`) |
 
 Running `mesa` with no arguments prints the help.
 
@@ -70,24 +70,25 @@ An environment exists as long as its data workspace exists
 
 - `mesa shell` attaches and never needs to be told twice — a stopped container
   is started automatically, and a missing container is recreated from the
-  image, mounting the existing data. You are only asked for confirmation when
-  the environment itself does not exist yet (`y` runs the equivalent of
-  `mesa new <name>` and then attaches).
+  environment's image, mounting the existing data. You are only asked for
+  confirmation when the environment itself does not exist yet (`y` runs the
+  equivalent of `mesa new <name>` and then attaches).
 - `mesa stop` leaves the container in a stopped state, so anything installed
   inside the container outside `/workspace` (system packages, conda
   environments, home-directory changes) survives and is back when you attach
   again.
 - `mesa rm <name>` removes the container and keeps all data — the next
-  `mesa shell <name>` recreates a pristine container from the image and mounts
-  the existing data. State inside the container itself is lost, including
-  home-directory changes; image-baked home content (dotfiles, micromamba)
-  comes back with the fresh container. It asks for confirmation unless
-  `-f`/`--force` is given.
+  `mesa shell <name>` recreates a pristine container from the environment's
+  image and mounts the existing data. State inside the container itself is
+  lost, including home-directory changes; image-baked home content (dotfiles,
+  micromamba) comes back with the fresh container. It asks for confirmation
+  unless `-f`/`--force` is given.
 - `mesa rm -a <name>` (`--all`) is the only command that removes the
   environment. It asks for confirmation and then deletes the container and all
   data under `~/.local/share/mesa/<name>/`; `-f`/`--force` skips the prompt.
-- `mesa ls` lists every environment with one status: `running`, `stopped`,
-  or `data only` (no container at the moment).
+- `mesa ls` lists every environment with its status: `running`, `stopped`,
+  or `data only` (no container at the moment), and the image it was created
+  from.
 
 If no name is given, the configured default is used (`mesa config default <name>`,
 stored under `~/.config/mesa/config`); it falls back to `default` when unset.
@@ -130,6 +131,7 @@ Environment data lives under `~/.local/share/mesa/` (respects `XDG_DATA_HOME`):
 
 ```
 ~/.local/share/mesa/<name>/workspace   # mounted at /workspace in the container
+~/.local/share/mesa/<name>/env         # environment metadata (its image)
 ```
 
 Settings live in `~/.config/mesa/config` (respects `XDG_CONFIG_HOME`).
@@ -140,15 +142,49 @@ directory is not mounted: it lives in the container layer, so image-baked
 content (dotfiles, micromamba) is always present, and only `/workspace` data
 survives container removal.
 
-## Customizing the image
+## Images
 
-Edit the toolset layer in the `Dockerfile`, then rebuild:
+The base image is built from the `Dockerfile` in the repository root and
+tagged `localhost/mesa:latest`:
 
 ```sh
 ./mesa build
-./mesa rm <name>     # remove just the container; the next 'shell' starts a
-                     # fresh container from the new image, keeping your data
 ```
+
+Additional images live one per directory under `images/`, each with its own
+`Dockerfile`:
+
+```
+images/
+└── light/
+    └── Dockerfile
+```
+
+`mesa build <name>` builds `images/<name>/Dockerfile` and tags it
+`localhost/mesa:<name>`:
+
+```sh
+./mesa build light
+```
+
+### Choosing an image
+
+- `mesa new <name> -i <image>` creates an environment from a specific image
+  (`--image` also works). The value is a tag under `localhost/mesa` (e.g.
+  `light`) or a full image reference (e.g. `docker.io/library/archlinux`).
+- `mesa config image <image>` sets the default image used when no `-i` flag
+  is given (initially `localhost/mesa:latest`).
+- Every environment remembers its image in `~/.local/share/mesa/<name>/env`.
+  Deleting and recreating the container — or the whole environment's
+  container via `mesa rm <name>` followed by `mesa shell <name>` — uses the
+  same image again, even if the configured default changed in between.
+  `-i` on `mesa shell` only takes effect when a container has to be created;
+  an existing container keeps the image it was created from (remove it first
+  to switch).
+- `mesa ls` shows the image of each environment.
+
+Environments created before this file existed have no recorded image; they
+use the configured default and record it on their next container creation.
 
 ## License
 

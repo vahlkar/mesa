@@ -2,16 +2,18 @@
 """mesa — manage disposable Podman work environments.
 
 Commands:
-  build [name]              Build the image (required once, and after Dockerfile changes)
-  new   [name]              Create a fresh environment (refuses if it already exists)
-  shell [name]              Attach to the environment (starts or recreates the container if needed)
+  build [name]              Build an image: 'images/<name>/Dockerfile', or the
+                              base Dockerfile as localhost/mesa:latest
+  new   [name] [-i image]   Create a fresh environment (refuses if it exists)
+  shell [name] [-i image]   Attach to the environment (starts or recreates the
+                              container if needed)
   stop  [name]              Stop the environment's container (environment and data are kept)
   gui   [name] <cmd...>     Launch a graphical app inside the environment
   rm    [name] [-a] [-f]     Remove the container, keep all data (-a/--all also
                               destroys all data; -f/--force skips confirmation)
   logs  [name]              Show the container logs
-  ls                        List all environments and their status
-  config [key] [value]      Show settings, or set one (key: default)
+  ls                        List all environments, their status and image
+  config [key] [value]      Show settings, or set one (keys: default, image)
 """
 
 import os
@@ -23,7 +25,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-IMAGE = "localhost/mesa:latest"
+IMAGE_DEFAULT = "localhost/mesa:latest"
 HOST_UID = os.getuid()
 
 
@@ -43,16 +45,18 @@ USAGE = f"""mesa — manage disposable Podman work environments
 Usage: mesa <command> [name] [args...]
 
 Commands:
-  build [name]              Build the image (required once, and after Dockerfile changes)
-  new   [name]              Create a fresh environment (refuses if it already exists)
-  shell [name]              Attach to the environment (starts or recreates the container if needed)
+  build [name]              Build an image: 'images/<name>/Dockerfile', or the
+                              base Dockerfile as localhost/mesa:latest
+  new   [name] [-i image]   Create a fresh environment (refuses if it exists)
+  shell [name] [-i image]   Attach to the environment (starts or recreates the
+                              container if needed)
   stop  [name]              Stop the environment's container (environment and data are kept)
   gui   [name] <cmd...>     Launch a graphical app inside the environment
   rm    [name] [-a] [-f]     Remove the container, keep all data (-a/--all also
                               destroys all data; -f/--force skips confirmation)
   logs  [name]              Show the container logs
-  ls                        List all environments and their status
-  config [key] [value]      Show settings, or set one (key: default)
+  ls                        List all environments, their status and image
+  config [key] [value]      Show settings, or set one (keys: default, image)
 
 An environment exists as long as its data workspace exists
 (~/.local/share/mesa/<name>/workspace). Containers are disposable: 'shell'
@@ -60,6 +64,12 @@ starts or recreates them as needed, and only 'rm' removes the environment.
 
 'name' defaults to the configured default name ('mesa config default <name>'),
 or "default" if unset. Running 'mesa' with no arguments shows this help.
+
+'image' is an image name (a tag under localhost/mesa) or a full image
+reference. New environments use the configured default image
+('mesa config image <image>'), or the one given with '-i'. Each environment
+remembers its image, so recreated containers use the image they were
+created from.
 """
 
 
@@ -81,6 +91,87 @@ def cfg_set(key, value):
         updated.append(f"{key}={value}")
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text("\n".join(updated) + "\n")
+
+
+def image_ref(value=""):
+    """Resolve an image name to a full image reference.
+
+    Accepts a short name (a tag under localhost/mesa), a full image
+    reference (anything with ':' or '/'), or empty for the default.
+    """
+    if not value:
+        value = cfg_get("image") or IMAGE_DEFAULT
+    if ":" in value or "/" in value:
+        return value
+    return f"localhost/mesa:{value}"
+
+
+def env_file(name):
+    return DATA_DIR / name / "env"
+
+
+def env_get(name, key):
+    try:
+        lines = env_file(name).read_text().splitlines()
+    except FileNotFoundError:
+        return ""
+    for line in reversed(lines):
+        if line.startswith(f"{key}="):
+            return line.split("=", 1)[1]
+    return ""
+
+
+def env_set(name, key, value):
+    path = env_file(name)
+    lines = path.read_text().splitlines() if path.is_file() else []
+    updated = [f"{key}={value}" if line.startswith(f"{key}=") else line for line in lines]
+    if not any(line.startswith(f"{key}=") for line in updated):
+        updated.append(f"{key}={value}")
+    path.write_text("\n".join(updated) + "\n")
+
+
+def stored_image(name):
+    """The image an environment was created from (the default if unknown)."""
+    return env_get(name, "image") or image_ref()
+
+
+def image_exists(ref):
+    return subprocess.run(["podman", "image", "exists", ref]).returncode == 0
+
+
+def die_missing_image(ref):
+    short = ref.removeprefix("localhost/mesa:")
+    if short != ref:
+        hint = f"mesa build {short}"
+    else:
+        hint = f"mesa build, or pull the image: podman pull {ref}"
+    print(f"Image '{ref}' not found. Create it with: {hint}", file=sys.stderr)
+    sys.exit(1)
+
+
+def parse_image_flag(args, command):
+    """Split args into (image, positional) for commands taking -i/--image."""
+    image = ""
+    positional = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in ("-i", "--image"):
+            if i + 1 >= len(args):
+                print(f"{command}: {arg} needs a value", file=sys.stderr)
+                sys.exit(2)
+            image = args[i + 1]
+            i += 2
+        elif arg.startswith("--image="):
+            image = arg.split("=", 1)[1]
+            i += 1
+        elif arg.startswith("-") and arg != "-":
+            print(f"Unknown option: '{arg}'. Supported: -i, --image", file=sys.stderr)
+            sys.exit(2)
+        else:
+            positional.append(arg)
+            i += 1
+    return image, positional
 
 
 def podman(*args, check=True):
@@ -171,10 +262,25 @@ def wayland_socket_args():
 
 
 def cmd_build(args):
-    podman("build", "-t", IMAGE, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
+    if args:
+        name = args[0]
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+            print(f"Invalid image name: '{name}'", file=sys.stderr)
+            return 2
+        context = ROOT / "images" / name
+        if not (context / "Dockerfile").is_file():
+            print(f"No Dockerfile at {context}/Dockerfile", file=sys.stderr)
+            return 1
+        tag = f"localhost/mesa:{name}"
+    else:
+        context = ROOT
+        tag = IMAGE_DEFAULT
+    podman("build", "-t", tag, "--build-arg", f"HOST_UID={HOST_UID}", str(context))
 
 
-def create_container(name):
+def create_container(name, image):
+    if not image_exists(image):
+        die_missing_image(image)
     ws = workspace_dir(name)
     podman(
         "run", "-d", "--name", container(name), "--replace",
@@ -188,34 +294,50 @@ def create_container(name):
         "-v", "/tmp/.X11-unix:/tmp/.X11-unix:Z",
         "-v", "/dev/dri:/dev/dri",
         "-v", f"{ws}:/workspace:Z",
-        IMAGE,
+        image,
     )
 
 
+def create_environment(name, image):
+    if not image_exists(image):
+        die_missing_image(image)
+    ws = workspace_dir(name)
+    ws.mkdir(parents=True, exist_ok=True)
+    env_set(name, "image", image)
+    create_container(name, image)
+
+
 def cmd_new(args):
-    name = resolve_name(args)
+    image, positional = parse_image_flag(args, "new")
+    name = resolve_name(positional)
     if exists(name):
         print(f"Environment '{name}' already exists. Attach with: mesa shell {name}", file=sys.stderr)
         return 1
-    ws = workspace_dir(name)
-    ws.mkdir(parents=True, exist_ok=True)
-    create_container(name)
-    print(f"Environment '{name}' started. Attach with: mesa shell {name}")
+    image = image_ref(image)
+    create_environment(name, image)
+    print(f"Environment '{name}' started (image: {image}). Attach with: mesa shell {name}")
     return 0
 
 
 def cmd_shell(args):
-    name = resolve_name(args)
+    image_flag, positional = parse_image_flag(args, "shell")
+    name = resolve_name(positional)
     if not exists(name):
-        if confirm(f"Environment '{name}' does not exist. Create it?"):
-            if cmd_new([name]) != 0:
-                sys.exit(1)
-        else:
+        if not confirm(f"Environment '{name}' does not exist. Create it?"):
             die_not_running(name)
+        create_environment(name, image_ref(image_flag))
     elif not container_exists(name):
-        create_container(name)
+        image = image_ref(image_flag) if image_flag else stored_image(name)
+        env_set(name, "image", image)
+        create_container(name, image)
     elif not running(name):
         podman("start", container(name))
+        if image_flag:
+            print(f"Note: '{name}' keeps its current image ({stored_image(name)}).")
+            print(f"To switch, remove the container first: mesa rm {name} && mesa shell {name} -i <image>")
+    elif image_flag:
+        print(f"Note: '{name}' keeps its current image ({stored_image(name)}).")
+        print(f"To switch, remove the container first: mesa rm {name} && mesa shell {name} -i <image>")
     podman_exec("exec", "-it", container(name), "fish", "-l")
 
 
@@ -254,7 +376,7 @@ def cmd_rm(args):
             return 1
         podman("rm", "-f", container(name), check=False)
         print(f"Container removed; data kept at {data_dir}.")
-        print("State inside the container (system packages, home-directory changes) is lost; 'shell' recreates a fresh one from the image.")
+        print("State inside the container (system packages, home-directory changes) is lost; 'shell' recreates a fresh one from the environment's image.")
         return 0
     if not exists(name) and not container_exists(name):
         print("(already gone)")
@@ -292,29 +414,37 @@ def cmd_ls(args):
             status = "data only"
         else:
             status = "empty"
-        print(f"{name}\t{status}")
+        image = env_get(name, "image") or "-"
+        print(f"{name}\t{status}\t{image}")
 
 
 def cmd_config(args):
     key = args[0] if args else ""
     value = args[1] if len(args) > 1 else ""
-    if key == "default":
-        if value:
-            if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
-                print(f"Invalid name: '{value}'", file=sys.stderr)
-                return 2
-            cfg_set("default", value)
-            print(f"Default environment name set to '{value}'.")
-        else:
-            print(f"default = {cfg_get('default') or 'default'}")
-    elif key == "":
+    if key == "":
         if CONFIG_FILE.is_file():
             sys.stdout.write(CONFIG_FILE.read_text())
         else:
             print(f"No settings yet ({CONFIG_FILE})")
-    else:
-        print(f"Unknown setting: '{key}'. Supported: default", file=sys.stderr)
+        return 0
+    if key not in ("default", "image"):
+        print(f"Unknown setting: '{key}'. Supported: default, image", file=sys.stderr)
         return 2
+    if not value:
+        if key == "default":
+            print(f"default = {cfg_get('default') or 'default'}")
+        else:
+            print(f"image = {cfg_get('image') or IMAGE_DEFAULT}")
+        return 0
+    pattern = r"[A-Za-z0-9._-]+" if key == "default" else r"[A-Za-z0-9._:/-]+"
+    if not re.fullmatch(pattern, value):
+        print(f"Invalid {key}: '{value}'", file=sys.stderr)
+        return 2
+    cfg_set(key, value)
+    if key == "default":
+        print(f"Default environment name set to '{value}'.")
+    else:
+        print(f"Default image set to '{image_ref(value)}'.")
     return 0
 
 
