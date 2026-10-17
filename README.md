@@ -17,6 +17,9 @@ away, and keep your files (or wipe everything with one command).
   by your host user instead of root
 - GUI support: forwards your Wayland/X11 sockets and `/dev/dri`, so graphical
   apps run inside the container
+- Host SSH agent forwarding: the agent socket is bind-mounted into the
+  container when `SSH_AUTH_SOCK` is set, so `git`/`ssh` authenticate with your
+  host keys without the keys ever being inside the container
 - `micromamba` (aliased to `m`), the Mistral Vibe coding agent (`vibe`,
   installed as a uv tool under `~/.local/bin`, with `uv` from the Arch
   repos), dotfiles, and `fish` preinstalled in the image
@@ -99,7 +102,30 @@ stored under `~/.config/mesa/config`); it falls back to `default` when unset.
 ```
 
 This execs into the container with your host's `DISPLAY`/`WAYLAND_DISPLAY`
-and runtime directory forwarded, so the app appears on your desktop.
+forwarded, so the app appears on your desktop.
+
+### Host session access
+
+Containers deliberately do **not** get your whole `$XDG_RUNTIME_DIR`. Only the
+individual sockets they need are bind-mounted, each at its host path:
+
+- the SSH agent socket, when `SSH_AUTH_SOCK` is set on the host,
+- the Wayland compositor socket, when `WAYLAND_DISPLAY` is set.
+
+Everything else in the runtime directory — session bus (`bus`), keyring
+(`keyring`), pipewire/pulseaudio, the systemd user instance — stays private to
+the host. If something inside the container needs one of those, mount it
+explicitly in `create_container()` (for example
+`-v $XDG_RUNTIME_DIR/pipewire-0:/run/user/<uid>/pipewire-0`).
+
+One caveat: a bind-mounted socket is pinned to the socket that existed when the
+container was created. If the host service restarts and recreates its socket
+(new SSH agent, restarted compositor), the container keeps the stale one and
+connections fail. Fix it by recreating the container — the data survives:
+
+```sh
+./mesa rm <name> && ./mesa shell <name>
+```
 
 ## Data layout
 

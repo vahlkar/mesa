@@ -17,6 +17,7 @@ Commands:
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -144,16 +145,44 @@ def gui_env_args():
     ]
 
 
+def is_socket(path):
+    try:
+        return stat.S_ISSOCK(os.stat(path).st_mode)
+    except OSError:
+        return False
+
+
+def session_socket_args():
+    """Bind-mount the individual host session sockets the container needs
+    (SSH agent, Wayland compositor), each at its host path. Mounting the
+    whole runtime directory instead would also expose the session bus,
+    keyring, pipewire/pulseaudio, and the systemd user instance — and give
+    the container write access to them."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
+    agent_sock = os.environ.get("SSH_AUTH_SOCK", "")
+    wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
+    if wayland_display and os.path.isabs(wayland_display):
+        wayland_sock = wayland_display
+    elif wayland_display and runtime_dir:
+        wayland_sock = os.path.join(runtime_dir, wayland_display)
+    else:
+        wayland_sock = ""
+    args = []
+    for source, env in ((agent_sock, f"SSH_AUTH_SOCK={agent_sock}"),
+                        (wayland_sock, "")):
+        if source and is_socket(source):
+            args += ["-v", f"{source}:{source}"]
+            if env:
+                args += ["-e", env]
+    return args
+
+
 def cmd_build(args):
     podman("build", "-t", IMAGE, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
 
 
 def create_container(name):
     ws = workspace_dir(name)
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
-    if not runtime_dir:
-        print("XDG_RUNTIME_DIR is not set.", file=sys.stderr)
-        sys.exit(1)
     podman(
         "run", "-d", "--name", container(name), "--replace",
         "--userns=keep-id",
@@ -162,7 +191,7 @@ def create_container(name):
         "-e", f"XDG_RUNTIME_DIR=/run/user/{HOST_UID}",
         "-e", f"WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '')}",
         "-e", f"DISPLAY={os.environ.get('DISPLAY', '')}",
-        "-v", f"{runtime_dir}:/run/user/{HOST_UID}",
+        *session_socket_args(),
         "-v", "/tmp/.X11-unix:/tmp/.X11-unix:Z",
         "-v", "/dev/dri:/dev/dri",
         "-v", f"{ws}:/workspace:Z",
