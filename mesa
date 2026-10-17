@@ -3,13 +3,14 @@
 
 Commands:
   build [name]              Build the image (required once, and after Dockerfile changes)
-  new   [name]              Start a fresh, GUI-capable environment
-  shell [name]              Attach to the environment (starts or creates it if needed)
+  new   [name]              Create a fresh environment (refuses if it already exists)
+  shell [name]              Attach to the environment (starts or recreates the container if needed)
+  stop  [name]              Stop the environment's container (environment and data are kept)
   gui   [name] <cmd...>     Launch a graphical app inside the environment
-  rm    [name]              Destroy the container, keep workspace data
-  purge [name]              Destroy the container AND wipe workspace data
+  rm    [name] [-a] [-f]     Remove the container, keep all data (-a/--all also
+                              destroys all data; -f/--force skips confirmation)
   logs  [name]              Show the container logs
-  ls                        List all environments
+  ls                        List all environments and their status
   config [key] [value]      Show settings, or set one (key: default)
 """
 
@@ -42,14 +43,19 @@ Usage: mesa <command> [name] [args...]
 
 Commands:
   build [name]              Build the image (required once, and after Dockerfile changes)
-  new   [name]              Start a fresh, GUI-capable environment
-  shell [name]              Attach to the environment (starts or creates it if needed)
+  new   [name]              Create a fresh environment (refuses if it already exists)
+  shell [name]              Attach to the environment (starts or recreates the container if needed)
+  stop  [name]              Stop the environment's container (environment and data are kept)
   gui   [name] <cmd...>     Launch a graphical app inside the environment
-  rm    [name]              Destroy the container, keep workspace data
-  purge [name]              Destroy the container AND wipe workspace data
+  rm    [name] [-a] [-f]     Remove the container, keep all data (-a/--all also
+                              destroys all data; -f/--force skips confirmation)
   logs  [name]              Show the container logs
-  ls                        List all environments
+  ls                        List all environments and their status
   config [key] [value]      Show settings, or set one (key: default)
+
+An environment exists as long as its data workspace exists
+(~/.local/share/mesa/<name>/workspace). Containers are disposable: 'shell'
+starts or recreates them as needed, and only 'rm' removes the environment.
 
 'name' defaults to the configured default name ('mesa config default <name>'),
 or "default" if unset. Running 'mesa' with no arguments shows this help.
@@ -97,6 +103,11 @@ def container(name):
 
 
 def exists(name):
+    ws, _ = env_dirs(name)
+    return ws.is_dir()
+
+
+def container_exists(name):
     return container(name) in podman_output("ps", "-a", "--format", "{{.Names}}").splitlines()
 
 
@@ -138,11 +149,8 @@ def cmd_build(args):
     podman("build", "-t", IMAGE, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
 
 
-def cmd_new(args):
-    name = resolve_name(args)
+def create_container(name):
     ws, ws_home = env_dirs(name)
-    ws.mkdir(parents=True, exist_ok=True)
-    ws_home.mkdir(parents=True, exist_ok=True)
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
     if not runtime_dir:
         print("XDG_RUNTIME_DIR is not set.", file=sys.stderr)
@@ -162,19 +170,43 @@ def cmd_new(args):
         "-v", f"{ws_home}:/home/researcher:Z",
         IMAGE,
     )
+
+
+def cmd_new(args):
+    name = resolve_name(args)
+    if exists(name):
+        print(f"Environment '{name}' already exists. Attach with: mesa shell {name}", file=sys.stderr)
+        return 1
+    ws, ws_home = env_dirs(name)
+    ws.mkdir(parents=True, exist_ok=True)
+    ws_home.mkdir(parents=True, exist_ok=True)
+    create_container(name)
     print(f"Environment '{name}' started. Attach with: mesa shell {name}")
+    return 0
 
 
 def cmd_shell(args):
     name = resolve_name(args)
     if not exists(name):
         if confirm(f"Environment '{name}' does not exist. Create it?"):
-            cmd_new([name])
+            if cmd_new([name]) != 0:
+                sys.exit(1)
         else:
             die_not_running(name)
+    elif not container_exists(name):
+        create_container(name)
     elif not running(name):
         podman("start", container(name))
     podman_exec("exec", "-it", container(name), "fish", "-l")
+
+
+def cmd_stop(args):
+    name = resolve_name(args)
+    if running(name):
+        podman("stop", container(name))
+        print(f"Environment '{name}' stopped. Container kept; data intact.")
+    else:
+        print("(not running)")
 
 
 def cmd_gui(args):
@@ -185,22 +217,38 @@ def cmd_gui(args):
 
 
 def cmd_rm(args):
-    name = resolve_name(args)
-    if exists(name):
-        podman("rm", "-f", container(name))
-    else:
-        print("(already gone)")
-    ws, _ = env_dirs(name)
-    print(f"Container gone. Workspace data kept at {ws}")
-
-
-def cmd_purge(args):
-    name = resolve_name(args)
-    if exists(name):
+    flags = [a for a in args if a.startswith("-")]
+    for f in flags:
+        if f not in ("-a", "--all", "-f", "--force"):
+            print(f"Unknown option: '{f}'. Supported: -a, --all, -f, --force", file=sys.stderr)
+            return 2
+    name = resolve_name([a for a in args if not a.startswith("-")])
+    data_dir = DATA_DIR / name
+    all_data = "-a" in flags or "--all" in flags
+    force = "-f" in flags or "--force" in flags
+    if not all_data:
+        if not container_exists(name):
+            print("(already gone)")
+            return 0
+        if not force and not confirm(f"Remove the container for '{name}'? Data kept at {data_dir}."):
+            print("Aborted.")
+            return 1
         podman("rm", "-f", container(name), check=False)
-    ws, _ = env_dirs(name)
-    shutil.rmtree(ws)
-    print(f"Container and workspace data for '{name}' purged.")
+        print(f"Container removed; data kept at {data_dir}.")
+        print("State inside the container (e.g. system packages) is lost; 'shell' recreates it from the image.")
+        return 0
+    if not exists(name) and not container_exists(name):
+        print("(already gone)")
+        return 0
+    if not force and not confirm(f"Destroy environment '{name}' (container and all data under {data_dir})?"):
+        print("Aborted.")
+        return 1
+    if container_exists(name):
+        podman("rm", "-f", container(name), check=False)
+    if data_dir.is_dir():
+        shutil.rmtree(data_dir)
+    print(f"Environment '{name}' destroyed.")
+    return 0
 
 
 def cmd_logs(args):
@@ -209,9 +257,23 @@ def cmd_logs(args):
 
 
 def cmd_ls(args):
-    out = podman_output("ps", "-a", "--filter", "name=^mesa-", "--format", "{{.Names}}\\t{{.Status}}")
-    for line in out.splitlines():
-        print(re.sub(r"^mesa-", "", line))
+    all_containers = set(podman_output("ps", "-a", "--format", "{{.Names}}").splitlines())
+    live_containers = set(podman_output("ps", "--format", "{{.Names}}").splitlines())
+    names = set()
+    if DATA_DIR.is_dir():
+        names.update(child.name for child in DATA_DIR.iterdir() if child.is_dir())
+    names.update(cname[len("mesa-"):] for cname in all_containers if cname.startswith("mesa-"))
+    for name in sorted(names):
+        cname = container(name)
+        if cname in live_containers:
+            status = "running"
+        elif cname in all_containers:
+            status = "stopped"
+        elif exists(name):
+            status = "data only"
+        else:
+            status = "empty"
+        print(f"{name}\t{status}")
 
 
 def cmd_config(args):
@@ -245,9 +307,9 @@ COMMANDS = {
     "build": cmd_build,
     "new": cmd_new,
     "shell": cmd_shell,
+    "stop": cmd_stop,
     "gui": cmd_gui,
     "rm": cmd_rm,
-    "purge": cmd_purge,
     "logs": cmd_logs,
     "ls": cmd_ls,
     "config": cmd_config,

@@ -43,7 +43,8 @@ Named environments are fully isolated from each other:
 ```sh
 ./mesa new lab          # creates container "mesa-lab"
 ./mesa shell lab        # attaches to it
-./mesa rm lab           # removes the container, keeps workspace data
+./mesa stop lab         # stops the container (data is kept)
+./mesa rm lab           # destroys the environment: container and data
 ```
 
 ## Commands
@@ -51,21 +52,39 @@ Named environments are fully isolated from each other:
 | Command | Usage | Description |
 | --- | --- | --- |
 | `build` | `mesa build [name]` | Build the image (after Dockerfile changes) |
-| `new` | `mesa new [name]` | Start a fresh environment (GUI-capable) |
-| `shell` | `mesa shell [name]` | Attach to the environment (starts or creates it if needed) |
+| `new` | `mesa new [name]` | Create a fresh environment (refuses if it already exists) |
+| `shell` | `mesa shell [name]` | Attach to the environment (starts or recreates the container if needed) |
+| `stop` | `mesa stop [name]` | Stop the environment's container (environment and data are kept) |
 | `gui` | `mesa gui [name] <cmd...>` | Launch a graphical app inside it |
-| `rm` | `mesa rm [name]` | Destroy the container (keeps workspace data) |
-| `purge` | `mesa purge [name]` | Destroy the container and wipe workspace data |
+| `rm` | `mesa rm [name] [-a] [-f]` | Remove the container, keep data (`-a`/`--all`: also destroy all data; `-f`/`--force`: skip confirmation) |
 | `logs` | `mesa logs [name]` | Show container logs |
-| `ls` | `mesa ls` | List environments |
+| `ls` | `mesa ls` | List environments and their status |
 | `config` | `mesa config [key] [value]` | Show settings, or set one (key: `default`) |
 
 Running `mesa` with no arguments prints the help.
 
-`mesa shell` also copes with an environment that is not running: a stopped
-container is started automatically, and if the environment does not exist you
-are asked whether to create it (`y` runs the equivalent of `mesa new <name>`
-and then attaches).
+An environment exists as long as its data workspace exists
+(`~/.local/share/mesa/<name>/workspace`). Containers are disposable:
+
+- `mesa shell` attaches and never needs to be told twice — a stopped container
+  is started automatically, and a missing container is recreated from the
+  image, mounting the existing data. You are only asked for confirmation when
+  the environment itself does not exist yet (`y` runs the equivalent of
+  `mesa new <name>` and then attaches).
+- `mesa stop` leaves the container in a stopped state, so anything installed
+  inside the container outside the mounted directories (system packages,
+  files outside `/workspace` and `/home/researcher`) survives and is back
+  when you attach again.
+- `mesa rm <name>` removes the container and keeps all data — the next
+  `mesa shell <name>` recreates a pristine container from the image and mounts
+  the existing data. State inside the container itself (system packages, files
+  outside `/workspace` and `/home/researcher`) is lost. It asks for
+  confirmation unless `-f`/`--force` is given.
+- `mesa rm -a <name>` (`--all`) is the only command that removes the
+  environment. It asks for confirmation and then deletes the container and all
+  data under `~/.local/share/mesa/<name>/`; `-f`/`--force` skips the prompt.
+- `mesa ls` lists every environment with one status: `running`, `stopped`,
+  or `data only` (no container at the moment).
 
 If no name is given, the configured default is used (`mesa config default <name>`,
 stored under `~/.config/mesa/config`); it falls back to `default` when unset.
@@ -90,8 +109,8 @@ Environment data lives under `~/.local/share/mesa/` (respects `XDG_DATA_HOME`):
 
 Settings live in `~/.config/mesa/config` (respects `XDG_CONFIG_HOME`).
 
-- `rm` keeps this data, so `mesa new <name>` picks up where you left off.
-- `purge` deletes it permanently.
+This data is the environment. It survives stopped, destroyed, or recreated
+containers, and only `mesa rm -a <name>` deletes it.
 
 ## Customizing the image
 
@@ -99,7 +118,8 @@ Edit the toolset layer in the `Dockerfile`, then rebuild:
 
 ```sh
 ./mesa build
-./mesa new <name>   # --replace swaps in a fresh container from the new image
+./mesa rm <name>     # remove just the container; the next 'shell' starts a
+                     # fresh container from the new image, keeping your data
 ```
 
 ## License
