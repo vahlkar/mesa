@@ -11,7 +11,7 @@ RUN printf 'Server = https://mirror.init7.net/archlinux/$repo/os/$arch\n' \
 
 # --- Toolset layer: edit here, then `mesa build` ---
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
-        base-devel git openssh curl wget nmap tcpdump wireshark-cli \
+        base-devel less git openssh curl wget nmap tcpdump wireshark-cli \
         metasploit sqlmap hydra john python python-pipx ripgrep fd tmux gdb \
         radare2 binwalk file vim fish jq bind jdk-openjdk uv && \
     pacman -Scc --noconfirm          # clean cache -> small image
