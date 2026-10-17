@@ -17,7 +17,9 @@ away, and keep your files (or wipe everything with one command).
   by your host user instead of root
 - GUI support: forwards your Wayland/X11 sockets and `/dev/dri`, so graphical
   apps run inside the container
-- `micromamba` (aliased to `m`), dotfiles, and `fish` preinstalled in the image
+- `micromamba` (aliased to `m`), the Mistral Vibe coding agent (`vibe`,
+  installed as a uv tool under `~/.local/bin`), dotfiles, and `fish`
+  preinstalled in the image
 
 ## Requirements
 
