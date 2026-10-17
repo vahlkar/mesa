@@ -13,7 +13,7 @@ RUN printf 'Server = https://mirror.init7.net/archlinux/$repo/os/$arch\n' \
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
         base-devel git openssh curl wget nmap tcpdump wireshark-cli \
         metasploit sqlmap hydra john python python-pipx ripgrep fd tmux gdb \
-        radare2 binwalk file vim fish jq bind jdk-openjdk && \
+        radare2 binwalk file vim fish jq bind jdk-openjdk uv && \
     pacman -Scc --noconfirm          # clean cache -> small image
 
 # Non-root user matching your host UID (avoids root-owned files in the bind mount)
@@ -28,8 +28,7 @@ RUN git clone -b generic --recurse-submodules -j8 "https://github.com/vahlkar/do
 RUN "$HOME/.dotfiles/install" || echo "Ignoring errors."
 RUN curl -Ls "https://micro.mamba.pm/api/micromamba/$(uname)-$(uname -m)/latest" | tar -xvj -C "$HOME" bin/micromamba && ln -s "$HOME/bin/micromamba" "$HOME/bin/m"
 
-# Mistral Vibe coding agent, installed as the researcher user via uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+# Mistral Vibe coding agent, installed as the researcher user via uv (from extra)
 RUN uv tool install mistral-vibe
 USER root
 RUN pacman -Syu --noconfirm code

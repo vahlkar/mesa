@@ -18,8 +18,8 @@ away, and keep your files (or wipe everything with one command).
 - GUI support: forwards your Wayland/X11 sockets and `/dev/dri`, so graphical
   apps run inside the container
 - `micromamba` (aliased to `m`), the Mistral Vibe coding agent (`vibe`,
-  installed as a uv tool under `~/.local/bin`), dotfiles, and `fish`
-  preinstalled in the image
+  installed as a uv tool under `~/.local/bin`, with `uv` from the Arch
+  repos), dotfiles, and `fish` preinstalled in the image
 
 ## Requirements
 
