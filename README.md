@@ -17,9 +17,6 @@ away, and keep your files (or wipe everything with one command).
   by your host user instead of root
 - GUI support: forwards your Wayland/X11 sockets and `/dev/dri`, so graphical
   apps run inside the container
-- Host SSH agent forwarding: the agent socket is bind-mounted into the
-  container when `SSH_AUTH_SOCK` is set, so `git`/`ssh` authenticate with your
-  host keys without the keys ever being inside the container
 - `micromamba` (aliased to `m`), the Mistral Vibe coding agent (`vibe`,
   installed as a uv tool under `~/.local/bin`, with `uv` from the Arch
   repos), dotfiles, and `fish` preinstalled in the image
@@ -107,21 +104,21 @@ forwarded, so the app appears on your desktop.
 ### Host session access
 
 Containers deliberately do **not** get your whole `$XDG_RUNTIME_DIR`. Only the
-individual sockets they need are bind-mounted, each at its host path:
+Wayland compositor socket is bind-mounted (at its host path), so GUI apps can
+reach your desktop. Everything else in the runtime directory stays private to
+the host — the SSH agent, session bus (`bus`), keyring (`keyring`),
+pipewire/pulseaudio, and the systemd user instance. The container therefore
+has no access to your host credentials: `git`/`ssh` inside it use keys stored
+in the container or `/workspace`, never your host agent.
 
-- the SSH agent socket, when `SSH_AUTH_SOCK` is set on the host,
-- the Wayland compositor socket, when `WAYLAND_DISPLAY` is set.
-
-Everything else in the runtime directory — session bus (`bus`), keyring
-(`keyring`), pipewire/pulseaudio, the systemd user instance — stays private to
-the host. If something inside the container needs one of those, mount it
+If something inside the container genuinely needs another socket, mount it
 explicitly in `create_container()` (for example
 `-v $XDG_RUNTIME_DIR/pipewire-0:/run/user/<uid>/pipewire-0`).
 
 One caveat: a bind-mounted socket is pinned to the socket that existed when the
-container was created. If the host service restarts and recreates its socket
-(new SSH agent, restarted compositor), the container keeps the stale one and
-connections fail. Fix it by recreating the container — the data survives:
+container was created. If the host compositor restarts and recreates its
+socket, the container keeps the stale one and GUI connections fail. Fix it by
+recreating the container — the data survives:
 
 ```sh
 ./mesa rm <name> && ./mesa shell <name>

@@ -152,29 +152,22 @@ def is_socket(path):
         return False
 
 
-def session_socket_args():
-    """Bind-mount the individual host session sockets the container needs
-    (SSH agent, Wayland compositor), each at its host path. Mounting the
-    whole runtime directory instead would also expose the session bus,
-    keyring, pipewire/pulseaudio, and the systemd user instance — and give
-    the container write access to them."""
+def wayland_socket_args():
+    """Bind-mount only the Wayland compositor socket, at its host path.
+    The rest of the runtime directory — including the SSH agent, session
+    bus, keyring, pipewire/pulseaudio, and the systemd user instance —
+    stays private to the host."""
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
-    agent_sock = os.environ.get("SSH_AUTH_SOCK", "")
     wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
     if wayland_display and os.path.isabs(wayland_display):
         wayland_sock = wayland_display
     elif wayland_display and runtime_dir:
         wayland_sock = os.path.join(runtime_dir, wayland_display)
     else:
-        wayland_sock = ""
-    args = []
-    for source, env in ((agent_sock, f"SSH_AUTH_SOCK={agent_sock}"),
-                        (wayland_sock, "")):
-        if source and is_socket(source):
-            args += ["-v", f"{source}:{source}"]
-            if env:
-                args += ["-e", env]
-    return args
+        return []
+    if is_socket(wayland_sock):
+        return ["-v", f"{wayland_sock}:{wayland_sock}"]
+    return []
 
 
 def cmd_build(args):
@@ -191,7 +184,7 @@ def create_container(name):
         "-e", f"XDG_RUNTIME_DIR=/run/user/{HOST_UID}",
         "-e", f"WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '')}",
         "-e", f"DISPLAY={os.environ.get('DISPLAY', '')}",
-        *session_socket_args(),
+        *wayland_socket_args(),
         "-v", "/tmp/.X11-unix:/tmp/.X11-unix:Z",
         "-v", "/dev/dri:/dev/dri",
         "-v", f"{ws}:/workspace:Z",
