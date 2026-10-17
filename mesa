@@ -103,8 +103,7 @@ def container(name):
 
 
 def exists(name):
-    ws, _ = env_dirs(name)
-    return ws.is_dir()
+    return workspace_dir(name).is_dir()
 
 
 def container_exists(name):
@@ -115,8 +114,8 @@ def running(name):
     return container(name) in podman_output("ps", "--format", "{{.Names}}").splitlines()
 
 
-def env_dirs(name):
-    return DATA_DIR / name / "workspace", DATA_DIR / name / "home"
+def workspace_dir(name):
+    return DATA_DIR / name / "workspace"
 
 
 def resolve_name(args):
@@ -150,7 +149,7 @@ def cmd_build(args):
 
 
 def create_container(name):
-    ws, ws_home = env_dirs(name)
+    ws = workspace_dir(name)
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
     if not runtime_dir:
         print("XDG_RUNTIME_DIR is not set.", file=sys.stderr)
@@ -167,7 +166,6 @@ def create_container(name):
         "-v", "/tmp/.X11-unix:/tmp/.X11-unix:Z",
         "-v", "/dev/dri:/dev/dri",
         "-v", f"{ws}:/workspace:Z",
-        "-v", f"{ws_home}:/home/researcher:Z",
         IMAGE,
     )
 
@@ -177,9 +175,8 @@ def cmd_new(args):
     if exists(name):
         print(f"Environment '{name}' already exists. Attach with: mesa shell {name}", file=sys.stderr)
         return 1
-    ws, ws_home = env_dirs(name)
+    ws = workspace_dir(name)
     ws.mkdir(parents=True, exist_ok=True)
-    ws_home.mkdir(parents=True, exist_ok=True)
     create_container(name)
     print(f"Environment '{name}' started. Attach with: mesa shell {name}")
     return 0
@@ -235,7 +232,7 @@ def cmd_rm(args):
             return 1
         podman("rm", "-f", container(name), check=False)
         print(f"Container removed; data kept at {data_dir}.")
-        print("State inside the container (e.g. system packages) is lost; 'shell' recreates it from the image.")
+        print("State inside the container (system packages, home-directory changes) is lost; 'shell' recreates a fresh one from the image.")
         return 0
     if not exists(name) and not container_exists(name):
         print("(already gone)")

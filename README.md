@@ -3,9 +3,9 @@
 Manage disposable, GUI-capable Podman work environments with a single command.
 
 `mesa` wraps Podman to build and run isolated Arch Linux containers with a
-persistent, host-mounted workspace. Each environment gets its own container,
-workspace directory, and home directory — so you can experiment freely, throw
-the container away, and keep your files (or wipe everything with one command).
+persistent, host-mounted workspace. Each environment gets its own container
+and workspace directory — so you can experiment freely, throw the container
+away, and keep your files (or wipe everything with one command).
 
 ## What's in the box
 
@@ -72,14 +72,15 @@ An environment exists as long as its data workspace exists
   the environment itself does not exist yet (`y` runs the equivalent of
   `mesa new <name>` and then attaches).
 - `mesa stop` leaves the container in a stopped state, so anything installed
-  inside the container outside the mounted directories (system packages,
-  files outside `/workspace` and `/home/researcher`) survives and is back
-  when you attach again.
+  inside the container outside `/workspace` (system packages, conda
+  environments, home-directory changes) survives and is back when you attach
+  again.
 - `mesa rm <name>` removes the container and keeps all data — the next
   `mesa shell <name>` recreates a pristine container from the image and mounts
-  the existing data. State inside the container itself (system packages, files
-  outside `/workspace` and `/home/researcher`) is lost. It asks for
-  confirmation unless `-f`/`--force` is given.
+  the existing data. State inside the container itself is lost, including
+  home-directory changes; image-baked home content (dotfiles, micromamba)
+  comes back with the fresh container. It asks for confirmation unless
+  `-f`/`--force` is given.
 - `mesa rm -a <name>` (`--all`) is the only command that removes the
   environment. It asks for confirmation and then deletes the container and all
   data under `~/.local/share/mesa/<name>/`; `-f`/`--force` skips the prompt.
@@ -104,13 +105,15 @@ Environment data lives under `~/.local/share/mesa/` (respects `XDG_DATA_HOME`):
 
 ```
 ~/.local/share/mesa/<name>/workspace   # mounted at /workspace in the container
-~/.local/share/mesa/<name>/home        # mounted at /home/researcher
 ```
 
 Settings live in `~/.config/mesa/config` (respects `XDG_CONFIG_HOME`).
 
 This data is the environment. It survives stopped, destroyed, or recreated
-containers, and only `mesa rm -a <name>` deletes it.
+containers, and only `mesa rm -a <name>` deletes it. The container's home
+directory is not mounted: it lives in the container layer, so image-baked
+content (dotfiles, micromamba) is always present, and only `/workspace` data
+survives container removal.
 
 ## Customizing the image
 
