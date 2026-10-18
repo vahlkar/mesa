@@ -2,8 +2,11 @@
 """mesa — manage disposable Podman work environments.
 
 Commands:
-  build [name]              Build an image: 'images/<name>/Dockerfile', or the
-                              base Dockerfile as localhost/mesa:latest
+  build [name]              Build an image: 'mesa build' (or 'mesa build base')
+                              builds the base Dockerfile, tagged
+                              localhost/mesa:latest and localhost/mesa:base;
+                              'mesa build <name>' builds images/<name>/Dockerfile
+                              as localhost/mesa:<name>
   new   [name] [flags]      Create a fresh environment (refuses if it exists)
   shell [name] [flags]      Attach to the environment (starts or recreates the
                               container if needed)
@@ -48,8 +51,11 @@ USAGE = f"""mesa — manage disposable Podman work environments
 Usage: mesa <command> [name] [args...]
 
 Commands:
-  build [name]              Build an image: 'images/<name>/Dockerfile', or the
-                              base Dockerfile as localhost/mesa:latest
+  build [name]              Build an image: 'mesa build' (or 'mesa build base')
+                              builds the base Dockerfile, tagged
+                              localhost/mesa:latest and localhost/mesa:base;
+                              'mesa build <name>' builds images/<name>/Dockerfile
+                              as localhost/mesa:<name>
   new   [name] [flags]      Create a fresh environment (refuses if it exists)
   shell [name] [flags]      Attach to the environment (starts or recreates the
                               container if needed)
@@ -73,7 +79,7 @@ or "default" if unset. Running 'mesa' with no arguments shows this help.
 reference. New environments use the configured default image
 ('mesa config image <image>'), or the one given with '-i'. Each environment
 remembers its image, so recreated containers use the image they were
-created from.
+created from. The base image answers to both 'latest' and 'base'.
 
 Every container gets a private, writable runtime dir; host session sockets
 are only grafted in when asked for. Socket flags (on 'new' and 'shell'):
@@ -186,7 +192,9 @@ def image_exists(ref):
 
 def die_missing_image(ref):
     short = ref.removeprefix("localhost/mesa:")
-    if short != ref:
+    if short in ("latest", "base"):
+        hint = "mesa build"
+    elif short != ref:
         hint = f"mesa build {short}"
     else:
         hint = f"mesa build, or pull the image: podman pull {ref}"
@@ -375,8 +383,9 @@ def dockerfile_from(path):
 
 
 def cmd_build(args):
-    if not args:
+    if not args or args[0] == "base":
         podman("build", "-t", IMAGE_DEFAULT, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
+        podman("tag", IMAGE_DEFAULT, "localhost/mesa:base")
         return
     name = args[0]
     if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
@@ -408,7 +417,11 @@ def create_container(name, image, sockets):
         "--userns=keep-id",
         "--cap-add=NET_RAW", "--cap-add=NET_ADMIN",
         "--network=host",
-        f"--tmpfs={runtime_dir}:uid={HOST_UID},gid={HOST_UID},mode=0700",
+        # Private writable runtime dir for the container user. Podman takes
+        # no uid=/gid= options on --tmpfs: 'U' chowns the tmpfs to the
+        # container's user (researcher, mapped 1:1 by --userns=keep-id) and
+        # mode=0700 keeps it private.
+        f"--tmpfs={runtime_dir}:U,mode=0700",
         "-e", f"XDG_RUNTIME_DIR={runtime_dir}",
     ]
     if "gui" in sockets:

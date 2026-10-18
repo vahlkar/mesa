@@ -59,7 +59,7 @@ Named environments are fully isolated from each other:
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `build` | `mesa build [name]` | Build an image: `images/<name>/Dockerfile`, or the base `Dockerfile` as `localhost/mesa:latest` |
+| `build` | `mesa build [name]` | Build an image: the base `Dockerfile` (tagged `localhost/mesa:latest` and `localhost/mesa:base`; `mesa build` and `mesa build base` are equivalent), or `images/<name>/Dockerfile` as `localhost/mesa:<name>` |
 | `new` | `mesa new [name] [flags]` | Create a fresh environment (refuses if it already exists) |
 | `shell` | `mesa shell [name] [flags]` | Attach to the environment (starts or recreates the container if needed) |
 | `stop` | `mesa stop [name]` | Stop the environment's container (environment and data are kept) |
@@ -111,8 +111,8 @@ forwarded, so the app appears on your desktop.
 ### Host session sockets
 
 Every container gets a private, writable runtime dir (a tmpfs mounted at
-`/run/user/<uid>` inside the container), so tools like `tmux` work out of
-the box. Host session sockets are **not** shared by default — each one is
+`/run/user/<uid>` inside the container, owned by the container user), so tools
+like `tmux` work out of the box. Host session sockets are **not** shared by default — each one is
 only bind-mounted ("grafted") into the container when you ask for it, on
 `mesa new` and `mesa shell`:
 
@@ -174,11 +174,12 @@ survives container removal.
 ## Images
 
 The base image is built from the `Dockerfile` in the repository root and
-tagged `localhost/mesa:latest` — it is deliberately minimal: shell, editor,
-terminal, Python, and your dotfiles. Build it with:
+tagged both `localhost/mesa:latest` and `localhost/mesa:base` — it is
+deliberately minimal: shell, editor, terminal, Python, and your dotfiles.
+Build it with either name (they are equivalent):
 
 ```sh
-./mesa build
+./mesa build          # or: ./mesa build base
 ```
 
 Variants live one per directory under `images/`. Each variant's
@@ -203,9 +204,10 @@ Notes on the variants' extra tooling:
   browsers under `~/.cache/ms-playwright` (container layer). Launch VS
   Code as `mesa gui <name> code --no-sandbox`.
 
-`mesa build <name>` builds `images/<name>/Dockerfile` and tags it
-`localhost/mesa:<name>`; any missing parent image in the chain is built
-first, automatically:
+`mesa build base` (or bare `mesa build`) builds the base image, tagging it
+both `localhost/mesa:latest` and `localhost/mesa:base`; `mesa build <name>`
+builds `images/<name>/Dockerfile` and tags it `localhost/mesa:<name>`; any
+missing parent image in the chain is built first, automatically:
 
 ```sh
 ./mesa build security     # builds base, then dev, then security if needed
@@ -222,7 +224,7 @@ CMD. Rebuild a variant after changing any image below it in the chain.
   (`--image` also works). The value is a tag under `localhost/mesa` (e.g.
   `light`) or a full image reference (e.g. `docker.io/library/archlinux`).
 - `mesa config image <image>` sets the default image used when no `-i` flag
-  is given (initially `localhost/mesa:latest`).
+  is given (initially `localhost/mesa:latest`; `base` names the same image).
 - Every environment remembers its image in `~/.local/share/mesa/<name>/env`.
   Deleting and recreating the container — or the whole environment's
   container via `mesa rm <name>` followed by `mesa shell <name>` — uses the
