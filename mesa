@@ -4,16 +4,17 @@
 Commands:
   build [name]              Build an image: 'images/<name>/Dockerfile', or the
                               base Dockerfile as localhost/mesa:latest
-  new   [name] [-i image]   Create a fresh environment (refuses if it exists)
-  shell [name] [-i image]   Attach to the environment (starts or recreates the
+  new   [name] [flags]      Create a fresh environment (refuses if it exists)
+  shell [name] [flags]      Attach to the environment (starts or recreates the
                               container if needed)
   stop  [name]              Stop the environment's container (environment and data are kept)
   gui   [name] <cmd...>     Launch a graphical app inside the environment
   rm    [name] [-a] [-f]     Remove the container, keep all data (-a/--all also
                               destroys all data; -f/--force skips confirmation)
   logs  [name]              Show the container logs
-  ls                        List all environments, their status and image
-  config [key] [value]      Show settings, or set one (keys: default, image)
+  ls                        List all environments, their status, image and sockets
+  config [key] [value]      Show settings, or set one (keys: default, image,
+                              sockets)
 """
 
 import os
@@ -26,6 +27,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 IMAGE_DEFAULT = "localhost/mesa:latest"
+SOCKET_FLAGS = ("gui", "audio", "bus", "ssh-agent")
+SOCKETS_DEFAULT = "gui"
 HOST_UID = os.getuid()
 
 
@@ -47,16 +50,17 @@ Usage: mesa <command> [name] [args...]
 Commands:
   build [name]              Build an image: 'images/<name>/Dockerfile', or the
                               base Dockerfile as localhost/mesa:latest
-  new   [name] [-i image]   Create a fresh environment (refuses if it exists)
-  shell [name] [-i image]   Attach to the environment (starts or recreates the
+  new   [name] [flags]      Create a fresh environment (refuses if it exists)
+  shell [name] [flags]      Attach to the environment (starts or recreates the
                               container if needed)
   stop  [name]              Stop the environment's container (environment and data are kept)
   gui   [name] <cmd...>     Launch a graphical app inside the environment
   rm    [name] [-a] [-f]     Remove the container, keep all data (-a/--all also
                               destroys all data; -f/--force skips confirmation)
   logs  [name]              Show the container logs
-  ls                        List all environments, their status and image
-  config [key] [value]      Show settings, or set one (keys: default, image)
+  ls                        List all environments, their status, image and sockets
+  config [key] [value]      Show settings, or set one (keys: default, image,
+                              sockets)
 
 An environment exists as long as its data workspace exists
 (~/.local/share/mesa/<name>/workspace). Containers are disposable: 'shell'
@@ -70,6 +74,16 @@ reference. New environments use the configured default image
 ('mesa config image <image>'), or the one given with '-i'. Each environment
 remembers its image, so recreated containers use the image they were
 created from.
+
+Every container gets a private, writable runtime dir; host session sockets
+are only grafted in when asked for. Socket flags (on 'new' and 'shell'):
+  --gui          Wayland/X11 sockets and GPU devices
+  --audio        pipewire/pulse audio sockets
+  --bus          session D-Bus socket
+  --ssh-agent    host SSH agent socket
+Each has a --no-... negation. New environments use the configured default
+set ('mesa config sockets <list>', initially 'gui'; 'none' for none), and
+each environment remembers its set.
 """
 
 
@@ -135,6 +149,37 @@ def stored_image(name):
     return env_get(name, "image") or image_ref()
 
 
+def parse_socket_set(value):
+    """Parse a comma-separated socket-flag list, dropping unknown items."""
+    return {item.strip() for item in value.split(",") if item.strip()}
+
+
+def format_socket_set(sockets):
+    return ",".join(s for s in SOCKET_FLAGS if s in sockets)
+
+
+def default_sockets():
+    """The socket set for new environments (config 'sockets', else 'gui')."""
+    value = cfg_get("sockets")
+    if not value:
+        return {SOCKETS_DEFAULT}
+    if value in ("none", "-"):
+        return set()
+    return parse_socket_set(value)
+
+
+def stored_sockets(name):
+    """The socket set of an environment (the default if not recorded yet)."""
+    value = env_get(name, "sockets")
+    if value:
+        return parse_socket_set(value)
+    return default_sockets()
+
+
+def apply_socket_flags(sockets, add, remove):
+    return ({s for s in sockets if s not in remove} | add) & set(SOCKET_FLAGS)
+
+
 def image_exists(ref):
     return subprocess.run(["podman", "image", "exists", ref]).returncode == 0
 
@@ -149,9 +194,14 @@ def die_missing_image(ref):
     sys.exit(1)
 
 
-def parse_image_flag(args, command):
-    """Split args into (image, positional) for commands taking -i/--image."""
+def parse_env_args(args, command):
+    """Parse the flags shared by 'new' and 'shell'.
+
+    Returns (image, sockets_add, sockets_remove, positional). Socket flags
+    are applied in order, so '--gui --no-gui' leaves 'gui' off.
+    """
     image = ""
+    sockets = {}
     positional = []
     i = 0
     while i < len(args):
@@ -165,13 +215,29 @@ def parse_image_flag(args, command):
         elif arg.startswith("--image="):
             image = arg.split("=", 1)[1]
             i += 1
+        elif arg.startswith("--no-"):
+            name = arg[len("--no-"):]
+            if name not in SOCKET_FLAGS:
+                print(f"Unknown option: '{arg}'. Supported: --no-{', --no-'.join(SOCKET_FLAGS)}", file=sys.stderr)
+                sys.exit(2)
+            sockets[name] = False
+            i += 1
+        elif arg.startswith("--"):
+            name = arg[2:]
+            if name not in SOCKET_FLAGS:
+                print(f"Unknown option: '{arg}'. Supported: -i, --image, --{', --'.join(SOCKET_FLAGS)}", file=sys.stderr)
+                sys.exit(2)
+            sockets[name] = True
+            i += 1
         elif arg.startswith("-") and arg != "-":
-            print(f"Unknown option: '{arg}'. Supported: -i, --image", file=sys.stderr)
+            print(f"Unknown option: '{arg}'. Supported: -i, --image, --{', --'.join(SOCKET_FLAGS)}", file=sys.stderr)
             sys.exit(2)
         else:
             positional.append(arg)
             i += 1
-    return image, positional
+    add = {name for name, on in sockets.items() if on}
+    remove = {name for name, on in sockets.items() if not on}
+    return image, add, remove, positional
 
 
 def podman(*args, check=True):
@@ -261,6 +327,44 @@ def wayland_socket_args():
     return []
 
 
+def runtime_socket(rel):
+    """A host socket under $XDG_RUNTIME_DIR, or None if absent."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
+    if not runtime_dir:
+        return None
+    path = os.path.join(runtime_dir, rel)
+    return path if is_socket(path) else None
+
+
+def graft_socket_args(sockets, flag, specs):
+    """Bind-mount host session sockets into the container at their own paths.
+
+    'specs' maps relative socket paths to optional env-var templates, where
+    '{sock}' expands to the socket path. Missing host sockets are skipped
+    with a warning, so the container is still created without the
+    corresponding service.
+    """
+    if flag not in sockets:
+        return []
+    args = []
+    found = False
+    for rel, env_template in specs:
+        sock = runtime_socket(rel)
+        if not sock:
+            continue
+        found = True
+        args += ["-v", f"{sock}:{sock}"]
+        if env_template:
+            args += ["-e", env_template.format(sock=sock)]
+    if not found:
+        print(f"(warning: no host socket for --{flag} found; it has no effect)", file=sys.stderr)
+    return args
+
+
+def audio_graft_args(sockets):
+    return graft_socket_args(sockets, "audio", [("pipewire-0", None), ("pulse/native", None)])
+
+
 def cmd_build(args):
     if args:
         name = args[0]
@@ -278,66 +382,84 @@ def cmd_build(args):
     podman("build", "-t", tag, "--build-arg", f"HOST_UID={HOST_UID}", str(context))
 
 
-def create_container(name, image):
+def create_container(name, image, sockets):
     if not image_exists(image):
         die_missing_image(image)
     ws = workspace_dir(name)
-    podman(
+    runtime_dir = f"/run/user/{HOST_UID}"
+    args = [
         "run", "-d", "--name", container(name), "--replace",
         "--userns=keep-id",
         "--cap-add=NET_RAW", "--cap-add=NET_ADMIN",
         "--network=host",
-        "-e", f"XDG_RUNTIME_DIR=/run/user/{HOST_UID}",
-        "-e", f"WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '')}",
-        "-e", f"DISPLAY={os.environ.get('DISPLAY', '')}",
-        *wayland_socket_args(),
-        "-v", "/tmp/.X11-unix:/tmp/.X11-unix:Z",
-        "-v", "/dev/dri:/dev/dri",
-        "-v", f"{ws}:/workspace:Z",
-        image,
-    )
+        f"--tmpfs={runtime_dir}:uid={HOST_UID},gid={HOST_UID},mode=0700",
+        "-e", f"XDG_RUNTIME_DIR={runtime_dir}",
+    ]
+    if "gui" in sockets:
+        args += [
+            "-e", f"WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '')}",
+            "-e", f"DISPLAY={os.environ.get('DISPLAY', '')}",
+            *wayland_socket_args(),
+            "-v", "/tmp/.X11-unix:/tmp/.X11-unix:Z",
+            "-v", "/dev/dri:/dev/dri",
+        ]
+    args += audio_graft_args(sockets)
+    args += graft_socket_args(sockets, "bus", [("bus", "DBUS_SESSION_BUS_ADDRESS=unix:path={sock}")])
+    args += graft_socket_args(sockets, "ssh-agent", [("ssh", "SSH_AUTH_SOCK={sock}")])
+    args += ["-v", f"{ws}:/workspace:Z", image]
+    podman(*args)
 
 
-def create_environment(name, image):
+def create_environment(name, image, sockets):
     if not image_exists(image):
         die_missing_image(image)
     ws = workspace_dir(name)
     ws.mkdir(parents=True, exist_ok=True)
     env_set(name, "image", image)
-    create_container(name, image)
+    env_set(name, "sockets", format_socket_set(sockets))
+    create_container(name, image, sockets)
 
 
 def cmd_new(args):
-    image, positional = parse_image_flag(args, "new")
+    image, add, remove, positional = parse_env_args(args, "new")
     name = resolve_name(positional)
     if exists(name):
         print(f"Environment '{name}' already exists. Attach with: mesa shell {name}", file=sys.stderr)
         return 1
     image = image_ref(image)
-    create_environment(name, image)
-    print(f"Environment '{name}' started (image: {image}). Attach with: mesa shell {name}")
+    sockets = apply_socket_flags(default_sockets(), add, remove)
+    create_environment(name, image, sockets)
+    print(f"Environment '{name}' started (image: {image}, sockets: {format_socket_set(sockets) or 'none'}). "
+          f"Attach with: mesa shell {name}")
     return 0
 
 
+def switch_hint(name):
+    print(f"Note: '{name}' keeps its current container (image: {stored_image(name)}, "
+          f"sockets: {format_socket_set(stored_sockets(name)) or 'none'}).")
+    print(f"To switch, remove the container first: mesa rm {name} && mesa shell {name} <flags>")
+
+
 def cmd_shell(args):
-    image_flag, positional = parse_image_flag(args, "shell")
+    image_flag, add, remove, positional = parse_env_args(args, "shell")
     name = resolve_name(positional)
     if not exists(name):
         if not confirm(f"Environment '{name}' does not exist. Create it?"):
             die_not_running(name)
-        create_environment(name, image_ref(image_flag))
+        image = image_ref(image_flag)
+        sockets = apply_socket_flags(default_sockets(), add, remove)
+        create_environment(name, image, sockets)
     elif not container_exists(name):
         image = image_ref(image_flag) if image_flag else stored_image(name)
+        sockets = apply_socket_flags(stored_sockets(name), add, remove)
         env_set(name, "image", image)
-        create_container(name, image)
-    elif not running(name):
-        podman("start", container(name))
-        if image_flag:
-            print(f"Note: '{name}' keeps its current image ({stored_image(name)}).")
-            print(f"To switch, remove the container first: mesa rm {name} && mesa shell {name} -i <image>")
-    elif image_flag:
-        print(f"Note: '{name}' keeps its current image ({stored_image(name)}).")
-        print(f"To switch, remove the container first: mesa rm {name} && mesa shell {name} -i <image>")
+        env_set(name, "sockets", format_socket_set(sockets))
+        create_container(name, image, sockets)
+    else:
+        if not running(name):
+            podman("start", container(name))
+        if image_flag or add or remove:
+            switch_hint(name)
     podman_exec("exec", "-it", container(name), "fish", "-l")
 
 
@@ -352,6 +474,11 @@ def cmd_stop(args):
 
 def cmd_gui(args):
     name = resolve_name(args)
+    if "gui" not in stored_sockets(name):
+        print(f"Environment '{name}' has no GUI access (sockets: "
+              f"{format_socket_set(stored_sockets(name)) or 'none'}).", file=sys.stderr)
+        print(f"Recreate with: mesa rm {name} && mesa shell {name} --gui", file=sys.stderr)
+        return 1
     if not running(name):
         die_not_running(name)
     podman_exec("exec", "-it", container(name), *gui_env_args(), *args[1:])
@@ -415,7 +542,8 @@ def cmd_ls(args):
         else:
             status = "empty"
         image = env_get(name, "image") or "-"
-        print(f"{name}\t{status}\t{image}")
+        sockets = env_get(name, "sockets") or "-"
+        print(f"{name}\t{status}\t{image}\t{sockets}")
 
 
 def cmd_config(args):
@@ -427,24 +555,40 @@ def cmd_config(args):
         else:
             print(f"No settings yet ({CONFIG_FILE})")
         return 0
-    if key not in ("default", "image"):
-        print(f"Unknown setting: '{key}'. Supported: default, image", file=sys.stderr)
+    if key not in ("default", "image", "sockets"):
+        print(f"Unknown setting: '{key}'. Supported: default, image, sockets", file=sys.stderr)
         return 2
     if not value:
         if key == "default":
             print(f"default = {cfg_get('default') or 'default'}")
-        else:
+        elif key == "image":
             print(f"image = {cfg_get('image') or IMAGE_DEFAULT}")
+        else:
+            print(f"sockets = {cfg_get('sockets') or SOCKETS_DEFAULT}")
         return 0
-    pattern = r"[A-Za-z0-9._-]+" if key == "default" else r"[A-Za-z0-9._:/-]+"
-    if not re.fullmatch(pattern, value):
-        print(f"Invalid {key}: '{value}'", file=sys.stderr)
-        return 2
-    cfg_set(key, value)
     if key == "default":
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
+            print(f"Invalid {key}: '{value}'", file=sys.stderr)
+            return 2
+        cfg_set(key, value)
         print(f"Default environment name set to '{value}'.")
-    else:
+    elif key == "image":
+        if not re.fullmatch(r"[A-Za-z0-9._:/-]+", value):
+            print(f"Invalid {key}: '{value}'", file=sys.stderr)
+            return 2
+        cfg_set(key, value)
         print(f"Default image set to '{image_ref(value)}'.")
+    else:
+        if value not in ("none", "-"):
+            unknown = parse_socket_set(value) - set(SOCKET_FLAGS)
+            if unknown:
+                print(f"Unknown socket flags: {', '.join(sorted(unknown))}. "
+                      f"Supported: {', '.join(SOCKET_FLAGS)} (or 'none')", file=sys.stderr)
+                return 2
+            cfg_set(key, format_socket_set(parse_socket_set(value)))
+        else:
+            cfg_set(key, value)
+        print(f"Default socket set set to '{value}'.")
     return 0
 
 

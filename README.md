@@ -15,8 +15,9 @@ away, and keep your files (or wipe everything with one command).
   `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `code`, and more
 - Rootless containers with `--userns=keep-id`, so bind-mounted files are owned
   by your host user instead of root
-- GUI support: forwards your Wayland/X11 sockets and `/dev/dri`, so graphical
-  apps run inside the container
+- GUI support: the `--gui` socket set grafts your Wayland/X11 sockets and
+  `/dev/dri` (the default set), so graphical apps run inside the container;
+  audio, session D-Bus, and the SSH agent are opt-in grafts
 - `micromamba` (aliased to `m`), the Mistral Vibe coding agent (`vibe`,
   installed as a uv tool under `~/.local/bin`, with `uv` from the Arch
   repos), dotfiles, and `fish` preinstalled in the image
@@ -54,14 +55,14 @@ Named environments are fully isolated from each other:
 | Command | Usage | Description |
 | --- | --- | --- |
 | `build` | `mesa build [name]` | Build an image: `images/<name>/Dockerfile`, or the base `Dockerfile` as `localhost/mesa:latest` |
-| `new` | `mesa new [name] [-i image]` | Create a fresh environment (refuses if it already exists) |
-| `shell` | `mesa shell [name] [-i image]` | Attach to the environment (starts or recreates the container if needed) |
+| `new` | `mesa new [name] [flags]` | Create a fresh environment (refuses if it already exists) |
+| `shell` | `mesa shell [name] [flags]` | Attach to the environment (starts or recreates the container if needed) |
 | `stop` | `mesa stop [name]` | Stop the environment's container (environment and data are kept) |
 | `gui` | `mesa gui [name] <cmd...>` | Launch a graphical app inside it |
 | `rm` | `mesa rm [name] [-a] [-f]` | Remove the container, keep data (`-a`/`--all`: also destroy all data; `-f`/`--force`: skip confirmation) |
-| `logs` | `mesa logs [name]` | Show container logs |
-| `ls` | `mesa ls` | List environments, their status, and their image |
-| `config` | `mesa config [key] [value]` | Show settings, or set one (keys: `default`, `image`) |
+| `logs` | `mesa logs [name]` | Show the container logs |
+| `ls` | `mesa ls` | List environments, their status, image, and socket set |
+| `config` | `mesa config [key] [value]` | Show settings, or set one (keys: `default`, `image`, `sockets`) |
 
 Running `mesa` with no arguments prints the help.
 
@@ -87,8 +88,8 @@ An environment exists as long as its data workspace exists
   environment. It asks for confirmation and then deletes the container and all
   data under `~/.local/share/mesa/<name>/`; `-f`/`--force` skips the prompt.
 - `mesa ls` lists every environment with its status: `running`, `stopped`,
-  or `data only` (no container at the moment), and the image it was created
-  from.
+  or `data only` (no container at the moment), plus the image and socket set
+  it was created with.
 
 If no name is given, the configured default is used (`mesa config default <name>`,
 stored under `~/.config/mesa/config`); it falls back to `default` when unset.
@@ -102,24 +103,47 @@ stored under `~/.config/mesa/config`); it falls back to `default` when unset.
 This execs into the container with your host's `DISPLAY`/`WAYLAND_DISPLAY`
 forwarded, so the app appears on your desktop.
 
-### Host session access
+### Host session sockets
 
-Containers deliberately do **not** get your whole `$XDG_RUNTIME_DIR`. Only the
-Wayland compositor socket is bind-mounted (at its host path), so GUI apps can
-reach your desktop. Everything else in the runtime directory stays private to
-the host — the SSH agent, session bus (`bus`), keyring (`keyring`),
-pipewire/pulseaudio, and the systemd user instance. The container therefore
-has no access to your host credentials: `git`/`ssh` inside it use keys stored
-in the container or `/workspace`, never your host agent.
+Every container gets a private, writable runtime dir (a tmpfs mounted at
+`/run/user/<uid>` inside the container), so tools like `tmux` work out of
+the box. Host session sockets are **not** shared by default — each one is
+only bind-mounted ("grafted") into the container when you ask for it, on
+`mesa new` and `mesa shell`:
 
-If something inside the container genuinely needs another socket, mount it
-explicitly in `create_container()` (for example
-`-v $XDG_RUNTIME_DIR/pipewire-0:/run/user/<uid>/pipewire-0`).
+| Flag | Grafted into the container | What it enables |
+| --- | --- | --- |
+| `--gui` | Wayland socket, `/tmp/.X11-unix`, `/dev/dri` (GPU) | Graphical apps, hardware-accelerated rendering |
+| `--audio` | `pipewire-0`, `pulse/native` | Host audio |
+| `--bus` | session D-Bus (`bus`) | Portals, notifications — and everything else on your session bus |
+| `--ssh-agent` | `ssh` | Host SSH agent (your host keys become usable from inside) |
 
-One caveat: a bind-mounted socket is pinned to the socket that existed when the
-container was created. If the host compositor restarts and recreates its
-socket, the container keeps the stale one and GUI connections fail. Fix it by
-recreating the container — the data survives:
+Each flag has a `--no-...` negation for switching a set on recreate, e.g.
+`--no-gui --audio`. New environments use the configured default set
+(`mesa config sockets <list>`, initially `gui`; `none` for none), and —
+like the image — every environment remembers its socket set in its `env`
+metadata, so recreated containers keep it. `mesa shell` applies new flags
+only when it has to create a container; an existing container keeps what it
+was created with (the command prints a hint). `mesa gui` refuses with a
+clear error if the environment was created without `--gui`.
+
+Security notes:
+
+- The default `gui` set exposes your screens (screen capture) and GPU to
+  the container — inherent to running GUI apps.
+- `--bus` is the broadest grant: the session bus fronts most of your user
+  session, including the Secret Service, the user systemd instance, and
+  every other session app. Prefer running without it when you can.
+- `--ssh-agent` reverses mesa's earlier "never forward the host agent"
+  stance: it is opt-in only, and anything inside the container can then
+  sign with your host SSH keys.
+- The keyring and user systemd instance are never exposed.
+
+Caveat: bind-mounted sockets are pinned to the socket that existed when
+the container was created. If the host daemon restarts and recreates its
+socket (Wayland compositor, PipeWire, D-Bus), the container keeps the
+stale one and connections fail. Fix it by recreating the container — the
+data survives:
 
 ```sh
 ./mesa rm <name> && ./mesa shell <name>
@@ -131,7 +155,7 @@ Environment data lives under `~/.local/share/mesa/` (respects `XDG_DATA_HOME`):
 
 ```
 ~/.local/share/mesa/<name>/workspace   # mounted at /workspace in the container
-~/.local/share/mesa/<name>/env         # environment metadata (its image)
+~/.local/share/mesa/<name>/env         # environment metadata (its image, socket set)
 ```
 
 Settings live in `~/.config/mesa/config` (respects `XDG_CONFIG_HOME`).
