@@ -24,8 +24,12 @@ USER researcher
 ENV HOME=/home/researcher
 ENV PATH="/home/researcher/.local/bin:${PATH}"
 WORKDIR /workspace
-RUN git clone -b generic --recurse-submodules -j8 "https://github.com/vahlkar/dotfiles" "$HOME/.dotfiles" && sed -i '/link:/,/create:/ s/\(create: true\)/\1\n        force: true/' "$HOME/.dotfiles/install.conf.yaml"
-RUN "$HOME/.dotfiles/install" || echo "Ignoring errors."
+# Dotfiles: clone main and install the 'generic' host profile. The profile
+# is passed explicitly because ./install defaults to the machine's
+# hostname, which is random in a container. The sed adds force: true so
+# dotbot overwrites the real files left by /etc/skel (~/.bashrc, ~/.profile).
+RUN git clone -b main --recurse-submodules -j8 "https://github.com/vahlkar/dotfiles" "$HOME/.dotfiles" && sed -i '/link:/,/create:/ s/\(create: true\)/\1\n        force: true/' "$HOME/.dotfiles/install.conf.yaml"
+RUN "$HOME/.dotfiles/install" generic || echo "Ignoring errors."
 
 # Mistral Vibe coding agent, installed as the researcher user via uv (from extra)
 RUN uv tool install mistral-vibe
