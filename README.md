@@ -196,10 +196,13 @@ Notes on the variants' extra tooling:
 
 - **Burp Suite Professional** (`security`): PortSwigger ships a single
   installer for Community and Professional; the image installs it
-  unattended to `/opt/burpsuite` (`burpsuite` on PATH) using the version
+  unattended as the normal user into `~/.local/share/burpsuite`, with a
+  `burpsuite` symlink in `~/.local/bin` (on PATH), using the version
   pinned in the `BURP_VERSION` build arg — bump it when a newer release
   comes out. The edition activates with your license at first launch, so
-  a Pro license is required for Pro features.
+  a Pro license is required for Pro features. The install4j installer
+  initializes its font manager even unattended, hence the `freetype2`
+  and `fontconfig` packages alongside the tools.
 - **Playwright** (`ide`): installed with its Chromium and headless-shell
   browsers under `~/.cache/ms-playwright` (container layer). Launch VS
   Code as `mesa gui <name> code --no-sandbox`.
