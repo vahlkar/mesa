@@ -14,11 +14,11 @@ away, and keep your files (or wipe everything with one command).
   `vim`, `python` (plus `pipx`, `uv`), `git`, `openssh`, `curl`/`wget`,
   `ripgrep`, `fd`, `jq`, `less`, `file`, your dotfiles, and the Mistral Vibe
   coding agent
-- `images/` — image variants built on top of the base: `dev` (build/debug
-  toolchain: `base-devel`, `gdb`, `jdk-openjdk`, `bind`, micromamba),
+- `images/` — image variants, stacked: `dev` (build/debug toolchain:
+  `base-devel`, `gdb`, `jdk-openjdk`, `bind`, micromamba) on the base;
   `security` (offensive and reverse-engineering tools: `nmap`, `tcpdump`,
   `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `radare2`,
-  `binwalk`), and `desktop` (VS Code)
+  `binwalk`) and `desktop` (VS Code) on `dev`
 - Rootless containers with `--userns=keep-id`, so bind-mounted files are owned
   by your host user instead of root
 - GUI support: the `--gui` socket set grafts your Wayland/X11 sockets and
@@ -182,26 +182,28 @@ terminal, Python, and your dotfiles. Build it with:
 ./mesa build
 ```
 
-Variants live one per directory under `images/`, each with its own
-`Dockerfile` that starts `FROM localhost/mesa:latest`:
+Variants live one per directory under `images/`. Each variant's
+`Dockerfile` builds on another mesa image via `FROM` — `dev` on the base,
+`security` and `desktop` on `dev` — so the toolsets stack:
 
-| Variant | Adds |
-| --- | --- |
-| `dev` | `base-devel`, `gdb`, `jdk-openjdk`, `bind`, micromamba (`m`) |
-| `security` | `nmap`, `tcpdump`, `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `radare2`, `binwalk` |
-| `desktop` | VS Code (`code`) — run it as `mesa gui <name> code --no-sandbox` |
+| Variant | Builds on | Adds |
+| --- | --- | --- |
+| `dev` | base | `base-devel`, `gdb`, `jdk-openjdk`, `bind`, micromamba (`m`) |
+| `security` | `dev` | `nmap`, `tcpdump`, `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `radare2`, `binwalk` |
+| `desktop` | `dev` | VS Code (`code`) — run it as `mesa gui <name> code --no-sandbox` |
 
 `mesa build <name>` builds `images/<name>/Dockerfile` and tags it
-`localhost/mesa:<name>`; when the base image is missing, it is built first
-automatically:
+`localhost/mesa:<name>`; any missing parent image in the chain is built
+first, automatically:
 
 ```sh
-./mesa build security
+./mesa build security     # builds base, then dev, then security if needed
 ```
 
-Add your own variant by creating `images/<name>/Dockerfile` — start it with
-`FROM localhost/mesa:latest` (or `FROM localhost/mesa:<other-variant>`),
-install packages, and end with `USER researcher` and a `sleep infinity` CMD.
+Add your own variant by creating `images/<name>/Dockerfile` — start it
+with `FROM localhost/mesa:<image>` (the base, `dev`, or another variant),
+install packages, and end with `USER researcher` and a `sleep infinity`
+CMD. Rebuild a variant after changing any image below it in the chain.
 
 ### Choosing an image
 

@@ -1,8 +1,8 @@
 # syntax=docker
 # mesa 'security' image: network analysis and offensive/reverse-engineering
-# tooling on top of the base image. 'mesa build security' builds the base
-# image first if it is missing.
-FROM localhost/mesa:latest
+# tooling on top of the 'dev' variant. 'mesa build security' builds any
+# missing parent image (dev, then the base) first.
+FROM localhost/mesa:dev
 
 USER root
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \

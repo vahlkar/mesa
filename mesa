@@ -365,24 +365,36 @@ def audio_graft_args(sockets):
     return graft_socket_args(sockets, "audio", [("pipewire-0", None), ("pulse/native", None)])
 
 
+def dockerfile_from(path):
+    """The image a Dockerfile builds on (its FROM line), or ''."""
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and line.upper().startswith("FROM "):
+            return line.split()[1]
+    return ""
+
+
 def cmd_build(args):
-    if args:
-        name = args[0]
-        if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
-            print(f"Invalid image name: '{name}'", file=sys.stderr)
-            return 2
-        context = ROOT / "images" / name
-        if not (context / "Dockerfile").is_file():
-            print(f"No Dockerfile at {context}/Dockerfile", file=sys.stderr)
-            return 1
-        tag = f"localhost/mesa:{name}"
-        if not image_exists(IMAGE_DEFAULT):
-            # Variants build on the base image; create it first when missing.
-            print(f"Base image {IMAGE_DEFAULT} not found; building it first.")
-            podman("build", "-t", IMAGE_DEFAULT, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
-    else:
-        context = ROOT
-        tag = IMAGE_DEFAULT
+    if not args:
+        podman("build", "-t", IMAGE_DEFAULT, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
+        return
+    name = args[0]
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+        print(f"Invalid image name: '{name}'", file=sys.stderr)
+        return 2
+    context = ROOT / "images" / name
+    dockerfile = context / "Dockerfile"
+    if not dockerfile.is_file():
+        print(f"No Dockerfile at {dockerfile}", file=sys.stderr)
+        return 1
+    tag = f"localhost/mesa:{name}"
+    parent = dockerfile_from(dockerfile)
+    if parent.startswith("localhost/mesa:") and parent != tag and not image_exists(parent):
+        print(f"Image {parent} (base of '{name}') not found; building it first.")
+        if parent == IMAGE_DEFAULT:
+            cmd_build([])
+        else:
+            cmd_build([parent.removeprefix("localhost/mesa:")])
     podman("build", "-t", tag, "--build-arg", f"HOST_UID={HOST_UID}", str(context))
 
 

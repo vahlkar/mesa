@@ -1,8 +1,9 @@
 # syntax=docker
-# mesa 'desktop' image: VS Code for GUI-forwarded editing on top of the base
-# image. 'mesa build desktop' builds the base image first if it is missing.
+# mesa 'desktop' image: VS Code for GUI-forwarded editing on top of the 'dev'
+# variant. 'mesa build desktop' builds any missing parent image (dev, then
+# the base) first.
 # Run it as: mesa gui <name> code --no-sandbox
-FROM localhost/mesa:latest
+FROM localhost/mesa:dev
 
 USER root
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed code && \
