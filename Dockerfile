@@ -10,9 +10,9 @@ RUN printf 'Server = https://mirror.init7.net/archlinux/$repo/os/$arch\n' \
     echo 'LANG=en_US.UTF-8' > /etc/locale.conf
 
 # --- Base toolset: shell, editor, and Python. Edit here, then `mesa build`.
-# Heavier tooling lives in the variants under images/ (dev, security, desktop).
+# Heavier tooling lives in the variants under images/ (dev, security, ide).
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
-        less file git openssh curl wget ripgrep fd tmux vim fish jq \
+        less file git openssh curl wget ripgrep fd tmux vim fish jq bind \
         python python-pipx uv && \
     pacman -Scc --noconfirm          # clean cache -> small image
 

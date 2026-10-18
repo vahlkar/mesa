@@ -12,13 +12,12 @@ away, and keep your files (or wipe everything with one command).
 - `mesa` — the manager script (build, create, attach, destroy environments)
 - `Dockerfile` — the **base** image: a lean Arch Linux with `fish`, `tmux`,
   `vim`, `python` (plus `pipx`, `uv`), `git`, `openssh`, `curl`/`wget`,
-  `ripgrep`, `fd`, `jq`, `less`, `file`, your dotfiles, and the Mistral Vibe
-  coding agent
+  `ripgrep`, `fd`, `jq`, `less`, `file`, `bind` (dig/dns), your dotfiles,
+  and the Mistral Vibe coding agent
 - `images/` — image variants, stacked: `dev` (build/debug toolchain:
-  `base-devel`, `gdb`, `jdk-openjdk`, `bind`, micromamba) on the base;
-  `security` (offensive and reverse-engineering tools: `nmap`, `tcpdump`,
-  `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `radare2`,
-  `binwalk`) and `desktop` (VS Code) on `dev`
+  `base-devel`, `gdb`, micromamba) on the base; `security` (offensive and
+  reverse-engineering tools plus Burp Suite Professional) and `ide`
+  (VS Code, `jdk-openjdk`, Playwright with Chromium) on `dev`
 - Rootless containers with `--userns=keep-id`, so bind-mounted files are owned
   by your host user instead of root
 - GUI support: the `--gui` socket set grafts your Wayland/X11 sockets and
@@ -184,13 +183,25 @@ terminal, Python, and your dotfiles. Build it with:
 
 Variants live one per directory under `images/`. Each variant's
 `Dockerfile` builds on another mesa image via `FROM` — `dev` on the base,
-`security` and `desktop` on `dev` — so the toolsets stack:
+`security` and `ide` on `dev` — so the toolsets stack:
 
 | Variant | Builds on | Adds |
 | --- | --- | --- |
-| `dev` | base | `base-devel`, `gdb`, `jdk-openjdk`, `bind`, micromamba (`m`) |
-| `security` | `dev` | `nmap`, `tcpdump`, `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `radare2`, `binwalk` |
-| `desktop` | `dev` | VS Code (`code`) — run it as `mesa gui <name> code --no-sandbox` |
+| `dev` | base | `base-devel`, `gdb`, micromamba (`m`) |
+| `security` | `dev` | `nmap`, `tcpdump`, `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `radare2`, `binwalk`, Burp Suite Professional |
+| `ide` | `dev` | VS Code (`code`), `jdk-openjdk`, Playwright with Chromium |
+
+Notes on the variants' extra tooling:
+
+- **Burp Suite Professional** (`security`): PortSwigger ships a single
+  installer for Community and Professional; the image installs it
+  unattended to `/opt/burpsuite` (`burpsuite` on PATH) using the version
+  pinned in the `BURP_VERSION` build arg — bump it when a newer release
+  comes out. The edition activates with your license at first launch, so
+  a Pro license is required for Pro features.
+- **Playwright** (`ide`): installed with its Chromium and headless-shell
+  browsers under `~/.cache/ms-playwright` (container layer). Launch VS
+  Code as `mesa gui <name> code --no-sandbox`.
 
 `mesa build <name>` builds `images/<name>/Dockerfile` and tags it
 `localhost/mesa:<name>`; any missing parent image in the chain is built

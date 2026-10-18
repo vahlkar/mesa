@@ -1,11 +1,11 @@
 # syntax=docker
-# mesa 'dev' image: build/debug toolchain, JVM, and micromamba on top of the
-# base image. 'mesa build dev' builds the base image first if it is missing.
+# mesa 'dev' image: build/debug toolchain and micromamba on top of the base
+# image. 'mesa build dev' builds any missing parent image (the base) first.
 FROM localhost/mesa:latest
 
 USER root
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
-        base-devel gdb jdk-openjdk bind && \
+        base-devel gdb && \
     pacman -Scc --noconfirm          # clean cache -> small image
 
 # micromamba (aliased to m), installed as the researcher user
