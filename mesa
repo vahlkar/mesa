@@ -376,6 +376,10 @@ def cmd_build(args):
             print(f"No Dockerfile at {context}/Dockerfile", file=sys.stderr)
             return 1
         tag = f"localhost/mesa:{name}"
+        if not image_exists(IMAGE_DEFAULT):
+            # Variants build on the base image; create it first when missing.
+            print(f"Base image {IMAGE_DEFAULT} not found; building it first.")
+            podman("build", "-t", IMAGE_DEFAULT, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
     else:
         context = ROOT
         tag = IMAGE_DEFAULT

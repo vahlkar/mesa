@@ -10,17 +10,23 @@ away, and keep your files (or wipe everything with one command).
 ## What's in the box
 
 - `mesa` — the manager script (build, create, attach, destroy environments)
-- `Dockerfile` — an Arch Linux image with a development and network-analysis
-  toolset: `base-devel`, `git`, `python`, `gdb`, `radare2`, `nmap`, `tcpdump`,
-  `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `code`, and more
+- `Dockerfile` — the **base** image: a lean Arch Linux with `fish`, `tmux`,
+  `vim`, `python` (plus `pipx`, `uv`), `git`, `openssh`, `curl`/`wget`,
+  `ripgrep`, `fd`, `jq`, `less`, `file`, your dotfiles, and the Mistral Vibe
+  coding agent
+- `images/` — image variants built on top of the base: `dev` (build/debug
+  toolchain: `base-devel`, `gdb`, `jdk-openjdk`, `bind`, micromamba),
+  `security` (offensive and reverse-engineering tools: `nmap`, `tcpdump`,
+  `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `radare2`,
+  `binwalk`), and `desktop` (VS Code)
 - Rootless containers with `--userns=keep-id`, so bind-mounted files are owned
   by your host user instead of root
 - GUI support: the `--gui` socket set grafts your Wayland/X11 sockets and
   `/dev/dri` (the default set), so graphical apps run inside the container;
   audio, session D-Bus, and the SSH agent are opt-in grafts
-- `micromamba` (aliased to `m`), the Mistral Vibe coding agent (`vibe`,
-  installed as a uv tool under `~/.local/bin`, with `uv` from the Arch
-  repos), dotfiles, and `fish` preinstalled in the image
+- `micromamba` (aliased to `m`) in the `dev` variant, the Mistral Vibe coding
+  agent (`vibe`, installed as a uv tool under `~/.local/bin`), dotfiles, and
+  `fish` preinstalled in the image
 
 ## Requirements
 
@@ -169,27 +175,33 @@ survives container removal.
 ## Images
 
 The base image is built from the `Dockerfile` in the repository root and
-tagged `localhost/mesa:latest`:
+tagged `localhost/mesa:latest` — it is deliberately minimal: shell, editor,
+terminal, Python, and your dotfiles. Build it with:
 
 ```sh
 ./mesa build
 ```
 
-Additional images live one per directory under `images/`, each with its own
-`Dockerfile`:
+Variants live one per directory under `images/`, each with its own
+`Dockerfile` that starts `FROM localhost/mesa:latest`:
 
-```
-images/
-└── light/
-    └── Dockerfile
-```
+| Variant | Adds |
+| --- | --- |
+| `dev` | `base-devel`, `gdb`, `jdk-openjdk`, `bind`, micromamba (`m`) |
+| `security` | `nmap`, `tcpdump`, `wireshark-cli`, `metasploit`, `sqlmap`, `hydra`, `john`, `radare2`, `binwalk` |
+| `desktop` | VS Code (`code`) — run it as `mesa gui <name> code --no-sandbox` |
 
 `mesa build <name>` builds `images/<name>/Dockerfile` and tags it
-`localhost/mesa:<name>`:
+`localhost/mesa:<name>`; when the base image is missing, it is built first
+automatically:
 
 ```sh
-./mesa build light
+./mesa build security
 ```
+
+Add your own variant by creating `images/<name>/Dockerfile` — start it with
+`FROM localhost/mesa:latest` (or `FROM localhost/mesa:<other-variant>`),
+install packages, and end with `USER researcher` and a `sleep infinity` CMD.
 
 ### Choosing an image
 
