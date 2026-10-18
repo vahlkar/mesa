@@ -2,11 +2,12 @@
 """mesa — manage disposable Podman work environments.
 
 Commands:
-  build [name]              Build an image: 'mesa build' (or 'mesa build base')
+  build [name] [flags]       Build an image: 'mesa build' (or 'mesa build base')
                               builds the base Dockerfile, tagged
                               localhost/mesa:latest and localhost/mesa:base;
                               'mesa build <name>' builds images/<name>/Dockerfile
-                              as localhost/mesa:<name>
+                              as localhost/mesa:<name>. Flag: --no-cache
+                              (rebuild without the layer cache)
   new   [name] [flags]      Create a fresh environment (refuses if it exists)
   shell [name] [flags]      Attach to the environment (starts or recreates the
                               container if needed)
@@ -51,11 +52,12 @@ USAGE = f"""mesa — manage disposable Podman work environments
 Usage: mesa <command> [name] [args...]
 
 Commands:
-  build [name]              Build an image: 'mesa build' (or 'mesa build base')
+  build [name] [flags]       Build an image: 'mesa build' (or 'mesa build base')
                               builds the base Dockerfile, tagged
                               localhost/mesa:latest and localhost/mesa:base;
                               'mesa build <name>' builds images/<name>/Dockerfile
-                              as localhost/mesa:<name>
+                              as localhost/mesa:<name>. Flag: --no-cache
+                              (rebuild without the layer cache)
   new   [name] [flags]      Create a fresh environment (refuses if it exists)
   shell [name] [flags]      Attach to the environment (starts or recreates the
                               container if needed)
@@ -383,11 +385,18 @@ def dockerfile_from(path):
 
 
 def cmd_build(args):
-    if not args or args[0] == "base":
-        podman("build", "-t", IMAGE_DEFAULT, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
+    flags = [a for a in args if a.startswith("-")]
+    for f in flags:
+        if f != "--no-cache":
+            print(f"Unknown option: '{f}'. Supported: --no-cache", file=sys.stderr)
+            return 2
+    cache = ("--no-cache",) if "--no-cache" in flags else ()
+    positional = [a for a in args if not a.startswith("-")]
+    if not positional or positional[0] == "base":
+        podman("build", *cache, "-t", IMAGE_DEFAULT, "--build-arg", f"HOST_UID={HOST_UID}", str(ROOT))
         podman("tag", IMAGE_DEFAULT, "localhost/mesa:base")
         return
-    name = args[0]
+    name = positional[0]
     if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
         print(f"Invalid image name: '{name}'", file=sys.stderr)
         return 2
@@ -401,10 +410,10 @@ def cmd_build(args):
     if parent.startswith("localhost/mesa:") and parent != tag and not image_exists(parent):
         print(f"Image {parent} (base of '{name}') not found; building it first.")
         if parent == IMAGE_DEFAULT:
-            cmd_build([])
+            cmd_build(list(cache))
         else:
-            cmd_build([parent.removeprefix("localhost/mesa:")])
-    podman("build", "-t", tag, "--build-arg", f"HOST_UID={HOST_UID}", str(context))
+            cmd_build([parent.removeprefix("localhost/mesa:"), *cache])
+    podman("build", *cache, "-t", tag, "--build-arg", f"HOST_UID={HOST_UID}", str(context))
 
 
 def create_container(name, image, sockets):

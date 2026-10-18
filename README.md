@@ -59,7 +59,7 @@ Named environments are fully isolated from each other:
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `build` | `mesa build [name]` | Build an image: the base `Dockerfile` (tagged `localhost/mesa:latest` and `localhost/mesa:base`; `mesa build` and `mesa build base` are equivalent), or `images/<name>/Dockerfile` as `localhost/mesa:<name>` |
+| `build` | `mesa build [name] [flags]` | Build an image: the base `Dockerfile` (tagged `localhost/mesa:latest` and `localhost/mesa:base`; `mesa build` and `mesa build base` are equivalent), or `images/<name>/Dockerfile` as `localhost/mesa:<name>`; `--no-cache` rebuilds without the layer cache |
 | `new` | `mesa new [name] [flags]` | Create a fresh environment (refuses if it already exists) |
 | `shell` | `mesa shell [name] [flags]` | Attach to the environment (starts or recreates the container if needed) |
 | `stop` | `mesa stop [name]` | Stop the environment's container (environment and data are kept) |
@@ -216,7 +216,9 @@ missing parent image in the chain is built first, automatically:
 Add your own variant by creating `images/<name>/Dockerfile` — start it
 with `FROM localhost/mesa:<image>` (the base, `dev`, or another variant),
 install packages, and end with `USER researcher` and a `sleep infinity`
-CMD. Rebuild a variant after changing any image below it in the chain.
+CMD. Rebuild a variant after changing any image below it in the chain;
+pass `--no-cache` to any `mesa build` to ignore the layer cache (an
+already-built parent image is still reused).
 
 ### Choosing an image
 
