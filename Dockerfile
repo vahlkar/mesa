@@ -13,7 +13,7 @@ RUN printf 'Server = https://mirror.init7.net/archlinux/$repo/os/$arch\n' \
 # Heavier tooling lives in the variants under images/ (dev, security, ide).
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
         less file git openssh curl wget ripgrep fd tmux vim fish jq bind \
-        xclip \
+        xclip wl-clipboard \
         python python-pipx uv && \
     pacman -Scc --noconfirm          # clean cache -> small image
 
