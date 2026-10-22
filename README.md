@@ -160,6 +160,8 @@ Environment data lives under `~/.local/share/mesa/` (respects `XDG_DATA_HOME`):
 
 ```
 ~/.local/share/mesa/<name>/workspace   # mounted at /workspace in the container
+~/.local/share/mesa/<name>/vibe        # mounted at /home/researcher/.vibe in the container
+~/.local/share/mesa/<name>/fish        # mounted at /home/researcher/.local/share/fish in the container
 ~/.local/share/mesa/<name>/env         # environment metadata (its image, socket set)
 ```
 
@@ -169,7 +171,14 @@ This data is the environment. It survives stopped, destroyed, or recreated
 containers, and only `mesa rm -a <name>` deletes it. The container's home
 directory is not mounted: it lives in the container layer, so image-baked
 content (dotfiles, micromamba) is always present, and only `/workspace` data
-survives container removal.
+survives container removal — with two exceptions, bind-mounted from
+alongside the workspace so they too survive recreation: the Vibe agent's
+home (`~/.vibe` — config, session history, API key) and the fish shell
+history (`~/.local/share/fish`). The list of persistent mounts lives in the
+`PERSISTENT_MOUNTS` table in the `mesa` script; only add directories that
+hold runtime-created state alone — a mount over a directory containing
+image-baked content (dotfiles symlinks, tool installs) shadows it and
+breaks the image.
 
 ## Images
 
