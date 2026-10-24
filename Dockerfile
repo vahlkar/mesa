@@ -19,7 +19,7 @@ RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
 
 # Non-root user matching your host UID (avoids root-owned files in the bind mount)
 ARG HOST_UID=1000
-RUN useradd -m -u "${HOST_UID}" -G wheel researcher && chown -R researcher /home/researcher
+RUN useradd -m -u "${HOST_UID}" -G wheel -s /usr/bin/fish researcher && chown -R researcher /home/researcher
 RUN mkdir -p /workspace && chown -R researcher /workspace
 USER researcher
 ENV HOME=/home/researcher
