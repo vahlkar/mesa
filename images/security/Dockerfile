@@ -11,7 +11,7 @@ FROM localhost/mesa:dev
 USER root
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
         nmap tcpdump wireshark-cli metasploit sqlmap hydra john \
-        radare2 binwalk freetype2 fontconfig mitmproxy proxychains-ng & \
+        radare2 binwalk freetype2 fontconfig mitmproxy proxychains-ng && \
     pacman -Scc --noconfirm          # clean cache -> small image
 
 # Burp Suite Professional: PortSwigger ships a single installer for
