@@ -11,10 +11,12 @@ RUN printf 'Server = https://mirror.init7.net/archlinux/$repo/os/$arch\n' \
 
 # --- Base toolset: shell, editor, and Python. Edit here, then `mesa build`.
 # Heavier tooling lives in the variants under images/ (dev, security, ide).
+# python-filelock is an undeclared dependency of python-pipx 1.18 (Arch
+# packaging bug); without it every 'pipx install' crashes.
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
         less file git openssh curl wget ripgrep fd tmux vim fish jq bind \
         xclip wl-clipboard \
-        python python-pipx uv && \
+        python python-pipx python-filelock uv && \
     pacman -Scc --noconfirm          # clean cache -> small image
 
 # Non-root user matching your host UID (avoids root-owned files in the bind mount)
