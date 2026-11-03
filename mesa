@@ -75,9 +75,9 @@ Commands:
 An environment exists as long as its data workspace exists
 (~/.local/share/mesa/<name>/workspace). Containers are disposable: 'shell'
 starts or recreates them as needed, and only 'rm' removes the environment.
-Some home-directory state — the Vibe agent's ~/.vibe and the fish shell
-history — is bind-mounted from alongside the workspace, so it survives
-recreation too.
+Some home-directory state — the Vibe agent's ~/.vibe, the fish shell
+history, and Burp Suite's license (the Java preferences) — is bind-mounted
+from alongside the workspace, so it survives recreation too.
 
 'name' defaults to the configured default name ('mesa config default <name>'),
 or "default" if unset. Running 'mesa' with no arguments shows this help.
@@ -302,6 +302,8 @@ PERSISTENT_MOUNTS = (
     ("vibe", "/home/researcher/.vibe"),
     # Fish shell history
     ("fish", "/home/researcher/.local/share/fish"),
+    # Java preferences: where Burp Suite stores its license
+    ("java-prefs", "/home/researcher/.java/.userPrefs"),
 )
 
 
@@ -518,6 +520,10 @@ def create_container(name, image, sockets):
     args += graft_socket_args(sockets, "ssh-agent", [("ssh", "SSH_AUTH_SOCK={sock}")])
     args += ["-v", f"{ws}:/workspace:Z"]
     for subdir, target in PERSISTENT_MOUNTS:
+        # Source dirs are (re)created here, not only at environment
+        # creation, so a mount added later still works when an existing
+        # environment's container is recreated.
+        (DATA_DIR / name / subdir).mkdir(parents=True, exist_ok=True)
         args += ["-v", f"{DATA_DIR / name / subdir}:{target}:Z"]
     args += [image]
     podman(*args)
@@ -528,8 +534,6 @@ def create_environment(name, image, sockets):
         die_missing_image(image)
     ws = workspace_dir(name)
     ws.mkdir(parents=True, exist_ok=True)
-    for subdir, _ in PERSISTENT_MOUNTS:
-        (DATA_DIR / name / subdir).mkdir(parents=True, exist_ok=True)
     env_set(name, "image", image)
     env_set(name, "sockets", format_socket_set(sockets))
     create_container(name, image, sockets)

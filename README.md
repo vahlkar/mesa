@@ -171,10 +171,11 @@ This data is the environment. It survives stopped, destroyed, or recreated
 containers, and only `mesa rm -a <name>` deletes it. The container's home
 directory is not mounted: it lives in the container layer, so image-baked
 content (dotfiles, micromamba) is always present, and only `/workspace` data
-survives container removal — with two exceptions, bind-mounted from
+survives container removal — with three exceptions, bind-mounted from
 alongside the workspace so they too survive recreation: the Vibe agent's
-home (`~/.vibe` — config, session history, API key) and the fish shell
-history (`~/.local/share/fish`). The list of persistent mounts lives in the
+home (`~/.vibe` — config, session history, API key), the fish shell
+history (`~/.local/share/fish`), and Burp Suite's license
+(`~/.java/.userPrefs` — the Java preferences). The list of persistent mounts lives in the
 `PERSISTENT_MOUNTS` table in the `mesa` script; only add directories that
 hold runtime-created state alone — a mount over a directory containing
 image-baked content (dotfiles symlinks, tool installs) shadows it and
