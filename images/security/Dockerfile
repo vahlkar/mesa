@@ -24,7 +24,9 @@ RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
 # It needs no root: it runs as the normal user, into $HOME, with the
 # executable symlinked into ~/.local/bin (on PATH from the base image).
 # Current releases install a single 'BurpSuite' launcher regardless of
-# the edition. Bump BURP_VERSION to pick up a newer release.
+# the edition. 'mesa build security' resolves the newest stable release
+# from PortSwigger's releases feed and passes it as BURP_VERSION; the
+# default below only applies when that can't be reached (e.g. offline).
 ARG BURP_VERSION=2026.9.2
 USER researcher
 RUN curl -fL "https://portswigger.net/burp/releases/download?product=desktop&version=${BURP_VERSION}&type=Linux" \

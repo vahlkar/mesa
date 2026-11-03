@@ -206,14 +206,16 @@ Notes on the variants' extra tooling:
 - **Burp Suite Professional** (`security`): PortSwigger ships a single
   installer for Community and Professional; the image installs it
   unattended as the normal user into `~/.local/share/burpsuite`, with a
-  `burpsuite` symlink in `~/.local/bin` (on PATH), using the version
-  pinned in the `BURP_VERSION` build arg — bump it when a newer release
-  comes out. The edition activates with your license at first launch, so
-  a Pro license is required for Pro features. The install4j installer
-  initializes its font manager even unattended, hence the `freetype2`
-  and `fontconfig` packages alongside the tools; `ttf-dejavu` provides
-  the actual fonts — without any font installed, Burp dies at startup
-  with "Fontconfig head is null".
+  `burpsuite` symlink in `~/.local/bin` (on PATH). `mesa build security`
+  resolves the newest stable release from PortSwigger's releases feed at
+  build time (Early Adopter builds are skipped) and passes it as the
+  `BURP_VERSION` build arg — the Dockerfile's default for it is only the
+  fallback for offline builds. The edition activates with your license at
+  first launch, so a Pro license is required for Pro features. The
+  install4j installer initializes its font manager even unattended, hence
+  the `freetype2` and `fontconfig` packages alongside the tools;
+  `ttf-dejavu` provides the actual fonts — without any font installed,
+  Burp dies at startup with "Fontconfig head is null".
 - **Playwright** (`ide`): installed with its Chromium and headless-shell
   browsers under `~/.cache/ms-playwright` (container layer). Launch VS
   Code as `mesa gui <name> code --no-sandbox`. The image ships

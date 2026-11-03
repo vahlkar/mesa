@@ -21,12 +21,14 @@ Commands:
                               sockets)
 """
 
+import json
 import os
 import re
 import shutil
 import stat
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -401,6 +403,41 @@ def dockerfile_from(path):
     return ""
 
 
+BURP_RELEASES_FEED = "https://portswigger.net/burp/releases/data"
+
+
+def latest_stable_release(releases):
+    """The newest stable Professional/Community release in a releases-feed
+    listing, or ''. Early Adopter builds are skipped, and so are other
+    products' releases (the feed also lists Burp Suite DAST etc.);
+    Professional and Community share one installer, so either category is
+    fine.
+    """
+    def numeric(version):
+        return tuple(int(part) if part.isdigit() else 0
+                     for part in version.split("."))
+
+    stable = [r["version"] for r in releases
+              if "Stable" in r.get("releaseChannels", [])
+              and {"Professional", "Community"} & set(r.get("categories", []))]
+    return max(stable, key=numeric, default="")
+
+
+def latest_burp_version():
+    """The newest stable Burp Suite version from PortSwigger's releases
+    feed, or '' if it can't be fetched or parsed — the build then falls
+    back to the BURP_VERSION default in the security Dockerfile.
+    """
+    try:
+        request = urllib.request.Request(BURP_RELEASES_FEED,
+                                         headers={"User-Agent": "mesa"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            feed = json.load(response)
+        return latest_stable_release(feed["ResultSet"]["Results"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
+
+
 def cmd_build(args):
     flags = [a for a in args if a.startswith("-")]
     for f in flags:
@@ -430,7 +467,25 @@ def cmd_build(args):
             cmd_build(list(cache))
         else:
             cmd_build([parent.removeprefix("localhost/mesa:"), *cache])
-    podman("build", *cache, "-t", tag, "--build-arg", f"HOST_UID={HOST_UID}", str(context))
+    build_args = [f"HOST_UID={HOST_UID}"]
+    if name == "security":
+        # Resolve Burp's version live so a plain 'mesa build security' always
+        # installs the newest stable release. Passing it as a build arg keeps
+        # the layer cache useful: the Burp step only reruns when the release
+        # actually changed, and the Dockerfile's BURP_VERSION default applies
+        # when the feed can't be reached (e.g. offline).
+        version = latest_burp_version()
+        if version:
+            print(f"Burp Suite: latest stable release {version}")
+            build_args.append(f"BURP_VERSION={version}")
+        else:
+            print("Burp Suite: latest release unknown; keeping the version "
+                  "pinned in the Dockerfile.")
+    build_cmd = ["build", *cache, "-t", tag]
+    for arg in build_args:
+        build_cmd += ["--build-arg", arg]
+    build_cmd.append(str(context))
+    podman(*build_cmd)
 
 
 def create_container(name, image, sockets):
