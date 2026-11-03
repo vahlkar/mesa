@@ -9,12 +9,14 @@ FROM localhost/mesa:dev
 # here because Burp's install4j installer initializes its font manager even
 # in unattended mode; without libfreetype.so.6 the installer dies. ttf-dejavu
 # provides the actual fonts: fontconfig with zero fonts installed makes Burp
-# itself die at startup with "Fontconfig head is null".
+# itself die at startup with "Fontconfig head is null". nss/gtk3/alsa-lib/mesa
+# are the shared-library stack of Burp's built-in browser — a bundled
+# Chromium, needing the same set the ide image ships for Playwright's.
 USER root
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
         nmap tcpdump wireshark-cli metasploit sqlmap hydra john \
         radare2 binwalk freetype2 fontconfig ttf-dejavu \
-        mitmproxy proxychains-ng && \
+        mitmproxy proxychains-ng nss gtk3 alsa-lib mesa && \
     pacman -Scc --noconfirm          # clean cache -> small image
 
 # Burp Suite Professional: PortSwigger ships a single installer for

@@ -216,7 +216,9 @@ Notes on the variants' extra tooling:
   install4j installer initializes its font manager even unattended, hence
   the `freetype2` and `fontconfig` packages alongside the tools;
   `ttf-dejavu` provides the actual fonts — without any font installed,
-  Burp dies at startup with "Fontconfig head is null".
+  Burp dies at startup with "Fontconfig head is null". Burp's built-in
+  browser (a bundled Chromium) additionally needs the GTK/NSS runtime at
+  launch, hence the `nss`, `gtk3`, `alsa-lib`, and `mesa` packages.
 - **Playwright** (`ide`): installed with its Chromium and headless-shell
   browsers under `~/.cache/ms-playwright` (container layer). Launch VS
   Code as `mesa gui <name> code --no-sandbox`. The image ships
