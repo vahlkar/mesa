@@ -216,7 +216,9 @@ Notes on the variants' extra tooling:
   with "Fontconfig head is null".
 - **Playwright** (`ide`): installed with its Chromium and headless-shell
   browsers under `~/.cache/ms-playwright` (container layer). Launch VS
-  Code as `mesa gui <name> code --no-sandbox`.
+  Code as `mesa gui <name> code --no-sandbox`. The image ships
+  `ttf-dejavu` — Electron, Chromium, and JVM GUIs render nothing usable
+  without at least one font installed.
 
 `mesa build base` (or bare `mesa build`) builds the base image, tagging it
 both `localhost/mesa:latest` and `localhost/mesa:base`; `mesa build <name>`

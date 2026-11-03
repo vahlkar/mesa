@@ -4,9 +4,11 @@
 # image (dev, then the base) first.
 FROM localhost/mesa:dev
 
+# ttf-dejavu is the only actual font in the image chain: without one,
+# VS Code (Electron), Playwright's Chromium, and JVM GUIs render tofu.
 USER root
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm --needed \
-        jdk-openjdk code nss gtk3 alsa-lib mesa && \
+        jdk-openjdk code nss gtk3 alsa-lib mesa ttf-dejavu && \
     pacman -Scc --noconfirm          # clean cache -> small image
 
 # Playwright with its Chromium browser, for in-browser testing.
